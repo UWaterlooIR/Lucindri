@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.lemurproject.lucindri.indexer.documentparser.CARDocumentParser;
+import org.lemurproject.lucindri.indexer.documentparser.ClimbmixJsonlDocumentParser;
 import org.lemurproject.lucindri.indexer.documentparser.ClueWeb09DocumentParser;
 import org.lemurproject.lucindri.indexer.documentparser.ClueWeb12DocumentParser;
 import org.lemurproject.lucindri.indexer.documentparser.ClueWeb22DocumentParser;
@@ -62,6 +63,7 @@ public class DocumentParserFactory {
 		docParserMap.put("marco", MARCODocumentParser.class);
 		docParserMap.put("marcofull", MARCOFullDocumentParser.class);
 		docParserMap.put("trectext", TrecTextDocumentParser.class);
+		docParserMap.put("climbmix", ClimbmixJsonlDocumentParser.class);
 	}
 
 	public Set<String> getDocumentFormatTypes() {
