@@ -5,6 +5,12 @@
 	<groupId>org.lemurproject.lucindri</groupId>
 	<artifactId>LucindriIndexer</artifactId>
 	<version>1.45</version>
+	<repositories>
+		<repository>
+			<id>jitpack.io</id>
+			<url>https://jitpack.io</url>
+		</repository>
+	</repositories>
 	<dependencies>
 		<dependency>
 			<groupId>org.apache.lucene</groupId>
@@ -59,7 +65,7 @@
 		<dependency>
 			<groupId>com.github.TREMA-UNH</groupId>
 			<artifactId>trec-car-tools-java</artifactId>
-			<version>17</version>
+			<version>22</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.solr</groupId>
