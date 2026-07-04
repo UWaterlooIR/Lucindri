@@ -1,0 +1,14 @@
+# Lucindri BuildIndex properties for the TASK-0008 comparison.
+# Substitute ${CORPUS}, ${INDEX_DIR}, ${INDEX_NAME}.
+# contentTags mirror Indri's trectext include-tag set so both engines index the same content.
+documentFormat=trectext
+indexingPlatform=lucene
+dataDirectory=${CORPUS}
+indexDirectory=${INDEX_DIR}
+indexName=${INDEX_NAME}
+indexFullText=true
+fieldNames=
+contentTags=text,hl,head,headline,title,ttl,dd,date,date_time,lp,leadpara
+stemmer=kstem
+removeStopwords=true
+ignoreCase=true

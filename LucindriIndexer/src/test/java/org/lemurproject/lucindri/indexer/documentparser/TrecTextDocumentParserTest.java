@@ -122,6 +122,20 @@ public class TrecTextDocumentParserTest {
 		assertEquals("apple", fulltext);
 	}
 
+	// Gzipped trectext files (.gz) are read directly.
+	@Test
+	public void readsGzippedTrec(@TempDir Path dir) throws Exception {
+		try (java.io.Writer w = new OutputStreamWriter(
+				new java.util.zip.GZIPOutputStream(Files.newOutputStream(dir.resolve("corpus.trec.gz"))),
+				StandardCharsets.UTF_8)) {
+			w.write(ONE_DOC);
+		}
+		List<ParsedDocument> docs = parseAll(config(dir, null));
+		assertEquals(1, docs.size());
+		assertEquals("d-42", field(docs.get(0), "externalId"));
+		assertEquals("apple banana cat", field(docs.get(0), "fulltext"));
+	}
+
 	// Configured contentTags add extra tags to fulltext, in document order (headline before text).
 	@Test
 	public void configurableContentTags(@TempDir Path dir) throws Exception {

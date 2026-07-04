@@ -12,6 +12,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.StringJoiner;
+import java.util.zip.GZIPInputStream;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -91,6 +92,9 @@ public class TrecTextDocumentParser extends DocumentParser {
 		if (fileIterator.hasNext()) {
 			File nextFile = fileIterator.next();
 			InputStream fileStream = new FileInputStream(nextFile);
+			if (nextFile.getName().endsWith(".gz")) {
+				fileStream = new GZIPInputStream(fileStream);
+			}
 			Reader decoder = new InputStreamReader(fileStream, "UTF-8");
 			br = new BufferedReader(decoder);
 		} else {

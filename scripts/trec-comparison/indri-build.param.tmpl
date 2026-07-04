@@ -1,0 +1,10 @@
+<!-- C++ Indri IndriBuildIndex parameters for the TASK-0008 comparison.
+     Substitute ${INDEX}, ${CORPUS}, and ${STOPPER} (from make-indri-stopper.sh).
+     Krovetz stemming; whole-document trectext content; 33-word Lucene stop set. -->
+<parameters>
+<index>${INDEX}</index>
+<memory>1G</memory>
+<corpus><path>${CORPUS}</path><class>trectext</class></corpus>
+<stemmer><name>krovetz</name></stemmer>
+${STOPPER}
+</parameters>
