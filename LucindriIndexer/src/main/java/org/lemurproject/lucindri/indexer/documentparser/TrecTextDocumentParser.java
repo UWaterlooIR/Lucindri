@@ -8,21 +8,28 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.StringJoiner;
 
-import org.apache.lucene.analysis.Analyzer;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.jsoup.parser.Parser;
 import org.jsoup.select.Elements;
 import org.lemurproject.lucindri.indexer.domain.IndexingConfiguration;
 import org.lemurproject.lucindri.indexer.domain.ParsedDocument;
 import org.lemurproject.lucindri.indexer.domain.ParsedDocumentField;
-import org.lemurproject.lucindri.indexer.factory.ConfigurableAnalyzerFactory;
 import org.xml.sax.SAXException;
 
+/**
+ * Parser for standard TREC-text: documents delimited by {@code <DOC>}…{@code </DOC>}, the document
+ * id in {@code <DOCNO>…</DOCNO>} (anywhere inside the document), and text content in include tags —
+ * by default {@code <TEXT>}, configurable via the {@code contentTags} property. The document id is
+ * stored under {@code externalId} and the markup-free content under {@code fulltext}. Mirrors
+ * Indri's trectext semantics (see C++ Indri {@code FileClassEnvironmentFactory.cpp}).
+ */
 public class TrecTextDocumentParser extends DocumentParser {
 
 	private final static String EXTERNALID_FIELD = "externalId";
@@ -36,30 +43,41 @@ public class TrecTextDocumentParser extends DocumentParser {
 	private int docNum;
 	private Iterator<File> fileIterator;
 	private BufferedReader br;
-	private String nextLine;
-	private Analyzer analyzer;
-	private List<String> fieldsToIndex;
-	private boolean indexFullText;
+	private final List<String> fieldsToIndex;
+	private final boolean indexFullText;
+	private final List<String> contentTags;
 
 	public TrecTextDocumentParser(IndexingConfiguration options) throws IOException {
-		// File folder = Paths.get(options.getDataDirectory()).toFile();
 		List<File> files = new ArrayList<>();
 		listFiles(options.getDataDirectory(), files);
 		fileIterator = files.iterator();
 		getNextScanner();
-		nextLine = "";
-		ConfigurableAnalyzerFactory analyzerFactory = new ConfigurableAnalyzerFactory();
-		analyzer = analyzerFactory.getConfigurableAnalyzer(options);
 		docNum = 0;
-		fieldsToIndex = options.getIndexFields();
+
+		// Null-safe: empty fieldNames must not NPE.
+		List<String> fields = options.getIndexFields();
+		fieldsToIndex = (fields != null) ? fields : Collections.emptyList();
 		indexFullText = options.isIndexFullText();
+
+		// Content tags contributing to fulltext; default is TEXT only.
+		List<String> tags = options.getContentTags();
+		if (tags == null || tags.isEmpty()) {
+			contentTags = Collections.singletonList("text");
+		} else {
+			List<String> lowered = new ArrayList<>();
+			for (String t : tags) {
+				lowered.add(t.trim().toLowerCase());
+			}
+			contentTags = lowered;
+		}
 	}
 
 	public static void listFiles(String directoryName, List<File> files) {
 		File directory = new File(directoryName);
-
-		// get all the files from a directory
 		File[] fList = directory.listFiles();
+		if (fList == null) {
+			return;
+		}
 		for (File file : fList) {
 			if (file.isFile()) {
 				files.add(file);
@@ -80,123 +98,115 @@ public class TrecTextDocumentParser extends DocumentParser {
 		}
 	}
 
+	/** Reads the next line, advancing across files; null when all files are exhausted. */
+	private String readLine() throws IOException {
+		while (br != null) {
+			String line = br.readLine();
+			if (line != null) {
+				return line;
+			}
+			br.close();
+			getNextScanner();
+		}
+		return null;
+	}
+
 	@Override
 	public boolean hasNextDocument() {
-		return fileIterator.hasNext() || nextLine != null;
+		return br != null;
 	}
 
 	@Override
 	public ParsedDocument getNextDocument() throws IOException, SAXException {
-		String docno = "";
-		String url = "";
 		while (br != null) {
-			if ((nextLine = br.readLine()) == null) {
-				br.close();
-				getNextScanner();
-				if (br != null) {
-					nextLine = br.readLine();
+			String line = readLine();
+			if (line == null) {
+				return null; // no more documents
+			}
+			if (!line.trim().equalsIgnoreCase("<DOC>")) {
+				continue; // skip anything outside a document
+			}
+			// Accumulate the whole <DOC>…</DOC> block.
+			StringBuilder block = new StringBuilder(line).append('\n');
+			String inner;
+			while ((inner = readLine()) != null) {
+				block.append(inner).append('\n');
+				if (inner.trim().toUpperCase().startsWith("</DOC>")) {
+					break;
 				}
 			}
-			if (nextLine != null) {
-				docNum++;
-
-				StringJoiner docBuffer = null;
-
-				// Get values from header
-				if (nextLine.startsWith("<DOCNO>")) {
-					docno = nextLine.substring(7, nextLine.length() - 8);
-				}
-
-				if (nextLine.equals("<DOC>")) {
-					docBuffer = new StringJoiner("\n");
-					docBuffer.add(nextLine);
-				}
-
-				StringJoiner textBuffer = null;
-				boolean inText = false;
-				while (docBuffer != null && ((nextLine = br.readLine()) != null) && !nextLine.startsWith("</DOC>")) {
-					// nextLine = nextLine.replaceAll("\\&\\#[0-9]+\\;", "");
-					docBuffer.add(nextLine);
-					if (nextLine.equals("<TEXT>")) {
-						textBuffer = new StringJoiner("");
-						inText = true;
-					}
-					if (inText) {
-						textBuffer.add(nextLine);
-					}
-					if (nextLine.equals("</TEXT>")) {
-						inText = false;
-					}
-				}
-				if (docBuffer != null) {
-					try {
-						Document htmlDoc = Jsoup.parse(docBuffer.toString());
-
-						if (docno == null || docno.length() == 0) {
-							docno = String.valueOf(docNum);
-						}
-
-						ParsedDocument doc = new ParsedDocument();
-						doc.setDocumentFields(new ArrayList<ParsedDocumentField>());
-
-						ParsedDocumentField externalIdField = new ParsedDocumentField(EXTERNALID_FIELD, docno, false);
-						doc.getDocumentFields().add(externalIdField);
-
-						ParsedDocumentField internalIdField = new ParsedDocumentField(ID_FIELD, String.valueOf(docNum),
-								false);
-						doc.getDocumentFields().add(internalIdField);
-
-						if (fieldsToIndex.contains(BODY_FIELD) || fieldsToIndex.contains(TEXT_FIELD)) {
-							ParsedDocumentField bodyField = new ParsedDocumentField(BODY_FIELD, textBuffer.toString(),
-									false);
-							doc.getDocumentFields().add(bodyField);
-						}
-
-						if (fieldsToIndex.contains(TITLE_FIELD)) {
-							String title = "";
-							Elements titleElements = htmlDoc.getElementsByTag("title");
-							if (titleElements != null && titleElements.size() > 0) {
-								Element element = titleElements.get(0);
-								title = element.toString();
-							}
-							ParsedDocumentField titleField = new ParsedDocumentField(TITLE_FIELD, title, false);
-							doc.getDocumentFields().add(titleField);
-						}
-
-						if (fieldsToIndex.contains(HEADING_FIELD)) {
-							Elements headerElements = htmlDoc.getElementsByTag("h1");
-							StringJoiner headersBuffer = new StringJoiner(" ");
-							if (headerElements != null && headerElements.size() > 0) {
-								for (Element headerElement : headerElements) {
-									headersBuffer.add(headerElement.toString());
-								}
-							}
-							ParsedDocumentField headingField = new ParsedDocumentField(HEADING_FIELD,
-									headersBuffer.toString(), false);
-							doc.getDocumentFields().add(headingField);
-						}
-
-						if (fieldsToIndex.contains(URL_FIELD)) {
-							ParsedDocumentField urlField = new ParsedDocumentField(URL_FIELD, url, false);
-							doc.getDocumentFields().add(urlField);
-						}
-
-						// Index fullText (catch-all) field
-						if (indexFullText) {
-							ParsedDocumentField fullTextField = new ParsedDocumentField(FULLTEXT_FIELD,
-									docBuffer.toString(), false);
-							doc.getDocumentFields().add(fullTextField);
-						}
-
-						return doc;
-					} catch (Exception e) {
-						System.out.println("Could not parse document: " + docno);
-					}
-				}
+			ParsedDocument doc = buildDocument(block.toString());
+			if (doc != null) {
+				return doc;
 			}
-			// }
+			// else: unparseable block — skip and continue to the next document
 		}
 		return null;
+	}
+
+	private ParsedDocument buildDocument(String block) {
+		docNum++;
+		try {
+			// XML parser: treat the TREC tags generically (no HTML wrapping / tag-moving).
+			Document xmlDoc = Jsoup.parse(block, "", Parser.xmlParser());
+
+			String docno = firstTagText(xmlDoc, "docno");
+			if (docno == null || docno.length() == 0) {
+				docno = String.valueOf(docNum);
+			}
+
+			ParsedDocument doc = new ParsedDocument();
+			doc.setDocumentFields(new ArrayList<ParsedDocumentField>());
+			doc.addDocumentField(new ParsedDocumentField(EXTERNALID_FIELD, docno, false));
+			doc.addDocumentField(new ParsedDocumentField(ID_FIELD, String.valueOf(docNum), false));
+
+			// fulltext = markup-free text of the configured content tags, in document order.
+			if (indexFullText) {
+				doc.addDocumentField(new ParsedDocumentField(FULLTEXT_FIELD, gatherContent(xmlDoc), false));
+			}
+
+			// Optional named fields, only when requested; each markup-free.
+			if (fieldsToIndex.contains(BODY_FIELD) || fieldsToIndex.contains(TEXT_FIELD)) {
+				doc.addDocumentField(new ParsedDocumentField(BODY_FIELD, firstTagText(xmlDoc, "text"), false));
+			}
+			if (fieldsToIndex.contains(TITLE_FIELD)) {
+				doc.addDocumentField(new ParsedDocumentField(TITLE_FIELD, firstTagText(xmlDoc, "title"), false));
+			}
+			if (fieldsToIndex.contains(HEADING_FIELD)) {
+				doc.addDocumentField(new ParsedDocumentField(HEADING_FIELD, firstTagText(xmlDoc, "headline"), false));
+			}
+			if (fieldsToIndex.contains(URL_FIELD)) {
+				doc.addDocumentField(new ParsedDocumentField(URL_FIELD, firstTagText(xmlDoc, "url"), false));
+			}
+
+			return doc;
+		} catch (Exception e) {
+			System.out.println("Could not parse document near: "
+					+ block.substring(0, Math.min(80, block.length())).replace('\n', ' '));
+			return null;
+		}
+	}
+
+	/** Markup-free text of the first element with the given tag, or "" if absent. */
+	private static String firstTagText(Document xmlDoc, String tag) {
+		Elements els = xmlDoc.getElementsByTag(tag);
+		if (els != null && els.size() > 0) {
+			return els.get(0).text().trim();
+		}
+		return "";
+	}
+
+	/** Concatenates the markup-free text of every configured content tag, in document order. */
+	private String gatherContent(Document xmlDoc) {
+		Elements els = xmlDoc.select(String.join(", ", contentTags));
+		StringJoiner sj = new StringJoiner(" ");
+		for (Element el : els) {
+			String text = el.text().trim();
+			if (text.length() > 0) {
+				sj.add(text);
+			}
+		}
+		return sj.toString();
 	}
 
 }

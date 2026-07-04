@@ -98,11 +98,12 @@ rankings **match** (`#1`, `#combine(#or …)` rank-match exactly). **Severity: M
 
 ## Notes
 
-- Lucindri is compared in **JSONL** (its target format); an earlier attempt using *trectext* for
-  Lucindri introduced confounds unrelated to query semantics (its trectext parser NPEs on empty
-  `fieldNames`, extracts `<DOCNO>` only when it precedes `<DOC>` rather than the standard TREC
-  order, and puts markup tokens in `fulltext`). Those are trectext-parser behaviors outside
-  Lucindri's model (docid + markup-free body) and are not query-language differences.
+- Lucindri is compared in **JSONL** (its target format). An earlier attempt using *trectext* for
+  Lucindri hit parser bugs unrelated to query semantics (NPE on empty `fieldNames`, `<DOCNO>`
+  extracted only when it preceded `<DOC>`, markup tokens in `fulltext`). **Those are fixed in
+  TASK-0007** — `trectext` now extracts standard `<DOCNO>`, indexes a markup-free body from
+  configurable content tags, and is null-safe — so a trectext-for-Lucindri comparison would now
+  agree with Indri on ids/doc sets.
 
 ## Reproduce
 

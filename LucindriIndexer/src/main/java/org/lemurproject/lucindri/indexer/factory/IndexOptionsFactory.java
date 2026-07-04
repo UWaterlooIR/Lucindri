@@ -46,6 +46,15 @@ public class IndexOptionsFactory {
 			}
 			options.setIndexFields(fields);
 		}
+		if (properties.getProperty("contentTags") != null
+				&& properties.getProperty("contentTags").trim().length() > 0) {
+			String[] tagArray = properties.getProperty("contentTags").split(",");
+			List<String> tags = new ArrayList<>();
+			for (String tag : tagArray) {
+				tags.add(tag.trim().toLowerCase());
+			}
+			options.setContentTags(tags);
+		}
 		options.setIndexName(properties.getProperty("indexName"));
 		options.setStemmer(properties.getProperty("stemmer"));
 		options.setRemoveStopwords(Boolean.valueOf(properties.getProperty("removeStopwords")));

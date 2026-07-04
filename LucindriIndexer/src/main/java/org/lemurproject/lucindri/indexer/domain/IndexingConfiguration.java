@@ -14,6 +14,8 @@ public class IndexingConfiguration extends BaseObject implements Serializable {
 	// Field Options
 	private boolean indexFullText;
 	private List<String> indexFields;
+	// Tags whose text contributes to the fulltext body (trectext); default handled by the parser.
+	private List<String> contentTags;
 
 	// Analyzer Options
 	private String stemmer;
@@ -108,6 +110,14 @@ public class IndexingConfiguration extends BaseObject implements Serializable {
 
 	public void setIndexFields(List<String> indexFields) {
 		this.indexFields = indexFields;
+	}
+
+	public List<String> getContentTags() {
+		return contentTags;
+	}
+
+	public void setContentTags(List<String> contentTags) {
+		this.contentTags = contentTags;
 	}
 
 	public String getHost() {
