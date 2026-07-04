@@ -96,5 +96,10 @@ Conventions:
 - When starting work: read this `CLAUDE.md`, then read the task file end-to-end before acting.
 - Dates in tasks are absolute (e.g. `2026-07-03`), never relative ("today", "yesterday").
 
-Task index:
-- `TASK-0001.md` — Add a JSONL document parser for the climbmix corpus.
+Seeing the current tasks — do NOT maintain a hand-written list here; it duplicates the task
+files and goes stale. Each `tasks/TASK-*.md` header (its `Status` + title line) is the single
+source of truth. Render a live index from those headers with:
+
+    scripts/tasks.sh
+
+To allocate the next task number, use the highest existing `tasks/TASK-*.md` + 1.
