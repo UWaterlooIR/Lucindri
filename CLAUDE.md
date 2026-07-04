@@ -81,6 +81,35 @@ and hand them to an `IndexWriter`. Lucindri wraps that in its own small framewor
   DOCNO is blank. Do not copy that behavior. `TrecTextDocumentParser` does it correctly.
 - Neither existing text parser reads gzip (both use a plain `FileInputStream`).
 
+## Testing
+
+**Policy (required).** All development work on this project **shall include appropriate automated
+tests.** A change is not "done" until `mvn test` is green in every module it touches. Concretely:
+- Every **bug fix** ships with a regression test that **fails before** the fix and **passes after**.
+- Every **new feature** (a new document parser, a new query operator, etc.) ships with tests that
+  cover its contract (field names, semantics, edge cases).
+- Do not disable or delete a test to make a build pass; fix the code or the test.
+
+**How testing is done here.** JUnit 5 + Maven Surefire, wired into each module's `pom.xml` with
+pinned versions **`org.junit.jupiter:junit-jupiter:5.8.2`** (test scope) and
+**`maven-surefire-plugin:2.22.2`**. Tests live under `<module>/src/test/java/...` mirroring the
+main package. Run with `mvn test` (or `mvn install`) in the module.
+
+- **Searcher tests reuse the shared fixture** `searcher/testutil` (`TestIndex`) — a builder that
+  creates a controlled Lucene index (faithful to production: `LMDirichletSimilarity` index-time,
+  positions, stored `fulltext`/`externalId`), optionally multiple sub-indexes in a `MultiReader`,
+  and runs Indri query strings via the real parser + searcher. **Reuse it; do not rebuild
+  tiny-index fixtures per test.** Default analyzer matches the query parser (KStem + stopwords +
+  lowercase); pick stem-invariant, non-stopword, lowercase test tokens so counts/terms are exact.
+- The searcher module **disables JVM assertions in Surefire** (`<enableAssertions>false</enableAssertions>`)
+  on purpose: Indri scores are negative log-probabilities, which trip Lucene's internal
+  `assert score >= 0`, and production runs via `java -jar` without `-ea`. This keeps tests aligned
+  with real runtime behavior.
+- Examples: indexer parser tests (`ClimbmixJsonlDocumentParserTest`), analyzer tokenization tests
+  (`EnglishAnalyzerConfigurableTest`), searcher fixture smoke tests (`TestIndexSmokeTest`).
+- A parent/reactor POM to centralize the above is a deferred option (modules currently build
+  independently with different versions); revisit only as a separate decision.
+
 ## Task tracking system
 
 Tasks live in `tasks/` as markdown files named `TASK-NNNN.md`, zero-padded, starting at
