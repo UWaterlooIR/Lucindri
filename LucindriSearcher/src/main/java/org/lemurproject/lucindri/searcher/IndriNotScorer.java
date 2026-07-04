@@ -53,7 +53,11 @@ public class IndriNotScorer extends IndriScorer {
 
 	@Override
 	public DocIdSetIterator iterator() {
-		return subScorer.iterator();
+		// #not only modifies belief; it must NOT add the negated term's docs to the candidate set.
+		// Returning subScorer.iterator() (the negated term's postings) made #combine(a #not(b))
+		// retrieve docs matching only b. Return an empty iterator so #not contributes no
+		// candidates and the parent scores it via smoothingScore(doc). (TASK-0006)
+		return DocIdSetIterator.empty();
 	}
 
 	@Override

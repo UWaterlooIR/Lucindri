@@ -30,6 +30,8 @@ import org.apache.lucene.search.IndriAndQuery;
 import org.apache.lucene.search.Query;
 import org.lemurproject.lucindri.analyzer.EnglishAnalyzerConfigurable;
 import org.lemurproject.lucindri.searcher.IndriBandQuery;
+import org.lemurproject.lucindri.searcher.IndriFilterRejectQuery;
+import org.lemurproject.lucindri.searcher.IndriFilterRequireQuery;
 import org.lemurproject.lucindri.searcher.IndriMaxQuery;
 import org.lemurproject.lucindri.searcher.IndriNearQuery;
 import org.lemurproject.lucindri.searcher.IndriNotQuery;
@@ -422,7 +424,35 @@ public class IndriQueryParser {
 					query = new IndriSynonymQuery(clauses, operatorQuery.getField());
 				} else if (operatorQuery.getOperator().equalsIgnoreCase(NOT)) {
 					query = new IndriNotQuery(clauses);
-				} else {
+				} else if (operatorQuery.getOperator().equalsIgnoreCase(SCOREIF)
+						|| operatorQuery.getOperator().equalsIgnoreCase(SCOREIFNOT)) {
+					// #scoreif/#scoreifnot: clause 0 is the filter, the rest are the scored subquery.
+					// Emit a native Indri filter query so it composes with Indri scoring (stats +
+					// smoothing). Rebuild as scoring clauses [filter, scored]; combine multiple scored
+					// operands with IndriAndQuery. (TASK-0006)
+					if (clauses.size() >= 2) {
+						Query scoredQuery;
+						if (clauses.size() == 2) {
+							scoredQuery = clauses.get(1).getQuery();
+						} else {
+							List<BooleanClause> scoredClauses = new ArrayList<>();
+							for (int i = 1; i < clauses.size(); i++) {
+								scoredClauses.add(clauses.get(i));
+							}
+							scoredQuery = new IndriAndQuery(scoredClauses);
+						}
+						List<BooleanClause> filterClauses = new ArrayList<>();
+						filterClauses.add(new BooleanClause(clauses.get(0).getQuery(), Occur.SHOULD));
+						filterClauses.add(new BooleanClause(scoredQuery, Occur.SHOULD));
+						if (operatorQuery.getOperator().equalsIgnoreCase(SCOREIF)) {
+							query = new IndriFilterRequireQuery(filterClauses);
+						} else {
+							query = new IndriFilterRejectQuery(filterClauses);
+						}
+					} else {
+						query = new IndriAndQuery(clauses);
+					}
+					} else {
 					query = new IndriAndQuery(clauses);
 				}
 			}

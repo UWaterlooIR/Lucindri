@@ -32,12 +32,12 @@ set diverges meaningfully. **Minor** = benign (tie-breaking, unprobed analysis).
 | term | `cat` | {1,2,4} | {1,2,4} | **match** | — |
 | `#combine`/`#and` | `#combine(cat dog)` | {1,2,4,5} | {1,2,4,5} | **match** | — |
 | `#or` | `#or(banana moon)` | {2,3,4} | {2,3,4} | **match** | — |
-| `#not` | `#combine(cat #not(dog))` | {1,2,4} | **{1,2,4,5}** | **DIFFER** | **Major** |
+| `#not` | `#combine(cat #not(dog))` | {1,2,4} | {1,2,4} | **match** | — (fixed, TASK-0006) |
 | `#wand` | `#wand(0.9 cat 0.1 dog)` | {1,2,4,5} | {1,2,4,5} | **match** | — |
 | `#wsum` | `#wsum(0.9 cat 0.1 dog)` | {1,2,4,5} | {1,2,4,5} | **match** | — |
 | `#max` | `#max(cat moon)` | {1,2,3,4} | {1,2,3,4} | **match** | — |
-| `#scoreif` | `#scoreif(dog #combine(cat))` | {1,4} | **{1,2,4,5}** | **DIFFER** | **Critical** |
-| `#scoreifnot` | `#scoreifnot(dog #combine(cat))` | {2} | **{1,2,4,5}** | **DIFFER** | **Critical** |
+| `#scoreif` | `#scoreif(dog #combine(cat))` | {1,4} | {1,4} | **match** | — (fixed, TASK-0006) |
+| `#scoreifnot` | `#scoreifnot(dog #combine(cat))` | {2} | {2} | **match** (rank too) | — (fixed, TASK-0006) |
 | `#band` | `#band(cat dog)` | {1,4} | {1,4} | **match** | — |
 | `#N` (ordered) | `#1(apple cat)` | {1} | {1} | **match** (rank too) | — |
 | `#uwN` | `#uw2(cat dog)` | {1,4} | {1,4} | **match** | — |
@@ -45,18 +45,18 @@ set diverges meaningfully. **Minor** = benign (tie-breaking, unprobed analysis).
 | `#band`+`#syn` | `#band(#syn(apple banana) #syn(cat dog))` | {1,2,5} | {1,2,5} | **match** | — |
 | `#combine`+`#or` | `#combine(#or(apple banana) moon)` | {1,2,3,4,5} | {1,2,3,4,5} | **match** (rank too) | — |
 
-### Critical / Major findings
+### Fixed in TASK-0006 (were Critical / Major)
 
-1. **`#scoreif` / `#scoreifnot` do not filter (Critical).** Indri `#filreq(dog #combine(cat))`
-   retrieves only docs containing `dog`, ranked by `cat` → {1,4}; `#filrej` rejects `dog` → {2}.
-   Lucindri returns {1,2,4,5} for **both** — it ignores the filter and behaves like `#combine`.
-   Root cause (known): the parser sets the clause `MUST`/`MUST_NOT`, but `IndriAndQuery` ignores
-   clause occur. → **follow-up TASK-0006.**
-2. **`#not` pulls negated-term docs into the retrieved set (Major).** `#combine(cat #not(dog))`:
-   Indri retrieves only `cat` docs {1,2,4}; Lucindri also returns doc **5** (`dog apple` — has
-   `dog`, **no** `cat`). Lucindri's `#not(dog)` contributes `dog`-docs to the candidate set, so a
-   document with **none** of the positive query terms is retrieved because it matches the negated
-   term. → **investigate in TASK-0006.**
+Both former divergences now conform to Indri (doc sets match; only benign tie-breaking remains):
+1. **`#scoreif` / `#scoreifnot` now filter.** Added native `IndriFilterRequireQuery` /
+   `IndriFilterRejectQuery` (Indri `#filreq`/`#filrej`): the scored subquery drives the candidate
+   set, kept (require) or dropped (reject) by whether the filter matches. `#scoreif(dog #combine(cat))`
+   → {1,4}; `#scoreifnot(dog #combine(cat))` → {2} (rank-matches Indri). (Was: both returned
+   {1,2,4,5} — the parser marked the clause `MUST`/`MUST_NOT` but `IndriAndQuery` ignored it.)
+2. **`#not` no longer leaks.** `IndriNotScorer.iterator()` returned the negated term's postings;
+   it now returns an empty iterator, so `#not` only modifies belief over docs that are candidates
+   via positive siblings. `#combine(cat #not(dog))` → {1,2,4}. (Was: {1,2,4,5}, retrieving doc 5
+   which has `dog` but no `cat`.)
 
 ### Conformant (doc sets match Indri)
 
@@ -91,10 +91,10 @@ rankings **match** (`#1`, `#combine(#or …)` rank-match exactly). **Severity: M
 
 | severity | items | disposition |
 |---|---|---|
-| **Critical** | `#scoreif`, `#scoreifnot` do not filter | **TASK-0006** (implement filtering) |
-| **Major** | `#not` retrieves negated-term-only docs | investigate in **TASK-0006** |
+| ~~Critical~~ **Fixed** | `#scoreif`, `#scoreifnot` filtering | **done in TASK-0006** (native filter queries) |
+| ~~Major~~ **Fixed** | `#not` negated-term-only leak | **done in TASK-0006** |
 | **Minor** | tie-breaking rank order; KStem-vs-Krovetz (unprobed); stopword handling | benign; KStem/stopword probe is a future pass |
-| **Conformant** | all other claimed operators (doc sets + scores match Indri) | — |
+| **Conformant** | all claimed operators now retrieve the same doc sets as Indri; scores match | — |
 
 ## Notes
 
