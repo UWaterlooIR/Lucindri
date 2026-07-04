@@ -7,6 +7,10 @@
 > (`LucindriSearcher/.../parser/IndriQueryParser.java`) and query classes — it is **not** a copy
 > of the Lemur wiki.
 >
+> **This is a derived analysis, not a statement of Lucindri's claims.** For what Lucindri
+> *officially claims* to implement, the authoritative source is the repo **`README.md`** ("Lucindri
+> Query Language" section). Where this guide and the README disagree, the README wins.
+>
 > **Authoritative upstream source:** the Lemur Project "Indri Query Language Reference" wiki
 > (`https://sourceforge.net/p/lemur/wiki/Indri%20Query%20Language%20Reference/`). Consult it for
 > the canonical wording; use this file for how it maps onto Lucindri.
