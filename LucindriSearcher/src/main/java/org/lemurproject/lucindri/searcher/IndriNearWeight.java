@@ -60,6 +60,8 @@ public class IndriNearWeight extends IndriTermOpWeight {
 				int[] numPostings = new int[iterators.size()];
 				int[] nextStartPositions = new int[iterators.size()];
 				int[] nextEndPositions = new int[iterators.size()];
+				java.util.Arrays.fill(nextStartPositions, -1);
+				java.util.Arrays.fill(nextEndPositions, -1);
 				// Iterator over the first postings in the near
 				for (int i = 0; i < iterator0.freq(); i++) {
 					nextStartPositions[0] = iterator0.nextPosition();
@@ -69,7 +71,7 @@ public class IndriNearWeight extends IndriTermOpWeight {
 					for (int j = 1; j < iterators.size(); j++) {
 						IndriDocAndPostingsIterator iteratorj = iterators.get(j);
 						// Increment the next posting until it is greater than the one before it
-						while (nextStartPositions[j] < nextEndPositions[j - 1] && numPostings[j] < iteratorj.freq()) {
+						while (nextStartPositions[j] <= nextEndPositions[j - 1] && numPostings[j] < iteratorj.freq()) {
 							nextStartPositions[j] = iteratorj.nextPosition();
 							nextEndPositions[j] = iteratorj.endPosition();
 							numPostings[j]++;

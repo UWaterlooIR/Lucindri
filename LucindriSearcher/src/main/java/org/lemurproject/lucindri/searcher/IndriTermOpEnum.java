@@ -12,6 +12,8 @@
 package org.lemurproject.lucindri.searcher;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.TreeMap;
 
 import org.apache.lucene.search.DocIdSetIterator;
@@ -21,19 +23,16 @@ public class IndriTermOpEnum extends IndriDocAndPostingsIterator {
 
 	private IndriInvertedList invList;
 	private Integer currentDocID;
+	private List<IndriDocumentPosting> currentPostings;
 	private int positionIndex;
 	private int endPostion;
 
 	public IndriTermOpEnum(IndriInvertedList invList) {
 		this.invList = invList;
-//		if (invList.getDocPostings() != null && invList.getDocPostings().size() > 0) {
-//			currentDocID = invList.getDocPostings().firstKey();
-//			positionIndex = 0;
-//		} else {
 		currentDocID = -1;
+		currentPostings = null;
 		positionIndex = 0;
 		endPostion = -1;
-//		}
 	}
 
 	@Override
@@ -47,6 +46,7 @@ public class IndriTermOpEnum extends IndriDocAndPostingsIterator {
 		if (currentDocID == null) {
 			currentDocID = DocIdSetIterator.NO_MORE_DOCS;
 		}
+		loadCurrentPostings();
 		return currentDocID;
 	}
 
@@ -56,39 +56,51 @@ public class IndriTermOpEnum extends IndriDocAndPostingsIterator {
 		if (currentDocID == null) {
 			currentDocID = DocIdSetIterator.NO_MORE_DOCS;
 		}
+		loadCurrentPostings();
 		return currentDocID;
+	}
+
+	/**
+	 * Loads the current document's postings in start-position order and resets the position
+	 * cursor. Must be called whenever the current document changes.
+	 */
+	private void loadCurrentPostings() {
+		positionIndex = 0;
+		endPostion = -1;
+		TreeMap<Integer, IndriDocumentPosting> docPostings = (currentDocID == null
+				|| currentDocID.intValue() == DocIdSetIterator.NO_MORE_DOCS) ? null
+						: invList.getDocPostings().get(currentDocID);
+		currentPostings = (docPostings == null) ? null : new ArrayList<>(docPostings.values());
 	}
 
 	@Override
 	public long cost() {
-		// TODO Auto-generated method stub
 		return 0;
 	}
 
 	public int freq() throws IOException {
-		TreeMap<Integer, IndriDocumentPosting> docPostings = invList.getDocPostings().get(currentDocID);
-		int freq = 0;
-		if (docPostings != null) {
-			freq = docPostings.size();
-		}
-		return freq;
+		return (currentPostings == null) ? 0 : currentPostings.size();
 	}
 
 	/**
-	 * Increments to the next posting and returns the start position of the next
-	 * posting
+	 * Returns the start position of the next posting (in start-position order), records its end
+	 * position, and advances the position cursor. Returns -1 when the current document's postings
+	 * are exhausted.
+	 *
+	 * <p>NOTE: the postings are stored in a {@code TreeMap} keyed by start position; earlier code
+	 * indexed that map with the sequential cursor value (treating a 0,1,2,... counter as a
+	 * start-position key), which returned -1 for any posting not starting at 0,1,2,... This
+	 * iterates the postings in order instead.
 	 */
 	@Override
 	public int nextPosition() throws IOException {
-		int nextPosition = -1;
-		if (invList.getDocPostings() != null && invList.getDocPostings().size() > 0
-				&& invList.getDocPostings().get(currentDocID) != null
-				&& invList.getDocPostings().get(currentDocID).get(positionIndex) != null) {
-			nextPosition = invList.getDocPostings().get(currentDocID).get(positionIndex).getStart();
-			endPostion = invList.getDocPostings().get(currentDocID).get(positionIndex).getEnd();
+		if (currentPostings != null && positionIndex < currentPostings.size()) {
+			IndriDocumentPosting posting = currentPostings.get(positionIndex);
+			endPostion = posting.getEnd();
 			positionIndex++;
+			return posting.getStart();
 		}
-		return nextPosition;
+		return -1;
 	}
 
 	@Override
@@ -98,19 +110,16 @@ public class IndriTermOpEnum extends IndriDocAndPostingsIterator {
 
 	@Override
 	public int startOffset() throws IOException {
-		// TODO Auto-generated method stub
 		return 0;
 	}
 
 	@Override
 	public int endOffset() throws IOException {
-		// TODO Auto-generated method stub
 		return 0;
 	}
 
 	@Override
 	public BytesRef getPayload() throws IOException {
-		// TODO Auto-generated method stub
 		return null;
 	}
 

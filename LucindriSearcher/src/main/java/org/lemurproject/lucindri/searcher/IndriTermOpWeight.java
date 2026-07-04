@@ -20,6 +20,7 @@ import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BulkScorer;
 import org.apache.lucene.search.CollectionStatistics;
+import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.LeafSimScorer;
 import org.apache.lucene.search.ScoreMode;
@@ -57,11 +58,18 @@ public abstract class IndriTermOpWeight extends IndriWeight {
 		for (Weight w : weights) {
 			Scorer scorer = w.scorer(context);
 			if (scorer != null) {
-				IndriDocAndPostingsIterator iterator = null;
-				if (scorer.iterator() instanceof IndriTermOpEnum) {
-					iterator = ((IndriTermOpEnum) scorer.iterator());
-				} else if (scorer.iterator() instanceof PostingsEnum) {
-					iterator = new IndriPostingsEnumWrapper((PostingsEnum) scorer.iterator());
+				DocIdSetIterator docIter = scorer.iterator();
+				IndriDocAndPostingsIterator iterator;
+				if (docIter instanceof IndriTermOpEnum) {
+					iterator = (IndriTermOpEnum) docIter;
+				} else if (docIter instanceof PostingsEnum) {
+					iterator = new IndriPostingsEnumWrapper((PostingsEnum) docIter);
+				} else {
+					throw new IllegalArgumentException(
+							"Term/proximity operators (#band, #N, #uwN, #syn) require term or proximity "
+									+ "operands with position lists; received a belief operator (e.g. #or/#combine) "
+									+ "with no positions. Use #syn (not #or) for a disjunctive facet inside a "
+									+ "proximity operator. Operand scorer: " + scorer.getClass().getName());
 				}
 				iterators.add(iterator);
 			}
