@@ -472,9 +472,15 @@ public class IndriQueryParser {
 					} else {
 						query = new IndriAndQuery(clauses);
 					}
+					} else if (clauses.size() == 1) {
+						// #combine(X)/#weight(w X)/#and(X) with a single operand is just X. Do NOT wrap it
+						// in a single-child IndriAndQuery: the stock IndriAndWeight single-scorer shortcut
+						// returns that child built with boost 1.0f, dropping a weight assigned by an
+						// enclosing #weight/#wsum. (TASK-0010 Phase 5)
+						query = clauses.get(0).getQuery();
 					} else {
-					query = new IndriAndQuery(clauses);
-				}
+						query = new IndriAndQuery(clauses);
+					}
 			}
 		} else if (queryTree instanceof QueryParserTermQuery) {
 			// Create term query

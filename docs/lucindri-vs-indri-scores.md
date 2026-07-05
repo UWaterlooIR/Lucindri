@@ -28,6 +28,9 @@ C2 (overlaps): o1:"10 20 10 20"  o2:"20 10 20"  o3:"10 10 20 20"  o4:"10 20"
 | 3 | `#uwN` occurrence-finding | **bug found + fixed** (see below) |
 | 3 | `#odN` ordered window over repeated terms | **bug found + FIXED** — ordered now = unordered = Indri (below) |
 | 4 | filters `#scoreif`/`#scoreifnot` vs Indri `#filreq`/`#filrej` | **match** (set + scores; below) |
+| 5 | nesting (`#syn` in windows, `#band`, `#max`/`#or`/`#wsum` of proximity, nested `#weight`, absent-term background) | **match** |
+| 5 | `#weight`/`#wsum` with a single-operand child (e.g. `#combine(#1(...))`) | **bug found + FIXED** (below) |
+| 5 | a filter (`#scoreif`) nested *inside* a belief operator | minor divergence — cataloged (below) |
 
 Phase 2 confirms at the score level what TASK-0008 concluded indirectly: the belief operators combine
 correctly; the earlier TREC divergence was analysis (tokenizer/doc-length), not the operators.
@@ -127,6 +130,43 @@ matches that do *not* match `c`. Verified across a bare-term filter, a proximity
 `#uw2(...)`), multi-term scored parts, and an OOV filter (which matches nothing — the `cf=0` floor is
 for *scoring*, not *matching*). E.g. `#filreq(30 #combine(10))` = `{d1}` (scored `{d1..d4}` ∩ filter
 `{d1,d5}`), scores identical to Indri. Locked by `FilterOperatorTest`.
+
+## Phase 5 — nesting / interactions
+
+Most compositions match Indri to ~1e-6: `#syn` inside `#1`/`#uwN`, `#band` of `#syn`s,
+`#max`/`#or`/`#wsum` of proximity children, `#combine` with a nested `#weight`, and — importantly —
+an **absent term** in `#combine` contributes its background (both engines average with the missing
+term's smoothed belief; sumWeight includes it).
+
+### FIXED — `#weight`/`#wsum` dropped the weight of a single-operand child
+On integers (no tokenizer effect), the topic-401 shape diverged by a constant offset:
+`#weight(0.8 #combine(t) 0.1 #combine(#1(t)) 0.1 #combine(#uw(t)))`. Root cause: a single-operand
+belief node like `#combine(#1(10 20))` was built as a **single-child `IndriAndQuery`**, and the stock
+Lucene `IndriAndWeight` single-sub-scorer shortcut returns that child built with a hardcoded boost
+`1.0f` — so the `0.1` weight assigned by the enclosing `#weight` was **dropped** (the component was
+scored at weight 1.0). Confirmed by decomposition: `#weight(0.5 #combine(10 20) 0.5 #combine(#1(10 20)))`
+gave `(0.5·s_A + 1.0·s_B)/1.5` instead of Indri's `(0.5·s_A + 0.5·s_B)/1.0`.
+
+**Fix:** in the parser, a single-operand `#combine`/`#weight`/`#and`/`#wand` (`#combine(X) ≡ X`) is no
+longer wrapped in a single-child `IndriAndQuery` — it returns `X` directly, so an enclosing weight
+propagates via `BoostQuery` (which works). After the fix the topic-401 shape and
+`#weight(0.9 #combine(10) 0.1 #combine(20))` match Indri. Regression test
+`BeliefOperatorScoreTest.weightAppliesToSingleOperandCombineChildren`.
+
+> **This corrects TASK-0008.** That study attributed the topic-401 divergence entirely to the
+> tokenizer and dismissed a `#weight` weight-drop as a test-harness artifact. The integer collection
+> (clean, sequential) shows the weight-drop was **real** and contributed to the divergence — the
+> single-term proximity components (`0.1 #combine(#uw8(...))`) had their weights dropped. Re-running
+> the TREC comparison after this fix should improve the agreement on the proximity-bearing topics.
+
+### Cataloged — a filter nested inside a belief operator
+`#weight(0.5 #scoreif(30 #combine(10)) 0.5 #combine(20))` matches for docs that pass the filter but
+diverges for docs that fail it. Indri's `WeightedAndNode` normalizes by `Σ|wᵢ|·(child extent count)`;
+a filter yields **0 extents** for a non-passing doc, so Indri renormalizes by the remaining weight
+(the doc scores as `#combine(20)` alone). Lucindri keeps the static weight. This dynamic per-doc
+renormalization only triggers for a zero-result child, i.e. a filter nested *inside* a belief
+operator — an unusual construction (filters are normally top-level). Left as a known minor
+difference; a genuinely absent *term* is unaffected (it contributes a background, not zero results).
 
 ## Reproduce
 

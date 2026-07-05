@@ -76,6 +76,20 @@ public class BeliefOperatorScoreTest {
 				score(dir, "ws", "#wsum(0.7 alpha 0.3 beta)"), EPS);
 	}
 
+	// A single-operand belief node #combine(X) ≡ X and must still receive a weight from an enclosing
+	// #weight/#wsum. Regression: the stock IndriAndWeight single-scorer shortcut used to return the
+	// child built with boost 1.0f, dropping the weight, so #weight(0.9 #combine(a) 0.1 #combine(b))
+	// wrongly collapsed to the equal-weight mean. Fixed by collapsing single-operand belief nodes in
+	// the parser (TASK-0010 Phase 5).
+	@Test
+	public void weightAppliesToSingleOperandCombineChildren(@TempDir Path dir) throws Exception {
+		double skew = score(dir, "s1", "#weight(0.9 #combine(alpha) 0.1 #combine(beta))");
+		double flip = score(dir, "s2", "#weight(0.1 #combine(alpha) 0.9 #combine(beta))");
+		assertEquals(0.9 * SA + 0.1 * SB, skew, EPS, "weight must apply to a single-operand #combine child");
+		assertEquals(0.1 * SA + 0.9 * SB, flip, EPS);
+		assertTrue(Math.abs(skew - flip) > 0.1, "weights on single-operand children must not be dropped");
+	}
+
 	// Out-of-vocabulary term (cf=0): Indri floors p(w|C)=1/(2|C|) and the term contributes a
 	// background belief rather than being dropped (TASK-0010). Here |C|=|d|=3, and TestIndex's default
 	// similarity is IndriDirichletSimilarity(mu=2000), so p(zzz|C)=1/6 and
