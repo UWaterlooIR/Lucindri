@@ -194,6 +194,40 @@ public abstract class IndriSimilarity extends Similarity {
 		return Math.log(x) / LOG_2;
 	}
 
+	/**
+	 * Collection probability {@code p(w|C)} with Indri's out-of-vocabulary floor: a term absent from
+	 * the collection ({@code cf == 0}) is assigned {@code p(w|C) = 1/(2|C|)} rather than 0. This
+	 * matches C++ Indri ({@code TermScoreFunctionFactory.cpp}: {@code occurrences ? occurrences/|C| :
+	 * 1/(2|C|)}) and keeps a missing query term from driving a belief combination to {@code log(0) =
+	 * -inf}. (TASK-0010)
+	 */
+	public static double collectionProbability(double totalTermFreq, double numberOfFieldTokens) {
+		if (numberOfFieldTokens <= 0) {
+			return 0.0;
+		}
+		if (totalTermFreq <= 0) {
+			return 1.0 / (2.0 * numberOfFieldTokens);
+		}
+		return totalTermFreq / numberOfFieldTokens;
+	}
+
+	/**
+	 * A {@link SimScorer} for a term absent from the collection ({@code cf == 0}). It carries the
+	 * floored collection probability so an out-of-vocabulary term contributes a background belief to a
+	 * belief combination instead of being dropped. Used via {@link IndriTermScorer}'s
+	 * {@code smoothingScore}.
+	 */
+	public final SimScorer backgroundSimScorer(float boost, CollectionStatistics collectionStats) {
+		IndriStats stats = (IndriStats) newStats(collectionStats.field(), boost);
+		stats.setNumberOfDocuments(collectionStats.docCount());
+		stats.setNumberOfFieldTokens(collectionStats.sumTotalTermFreq());
+		stats.setAvgFieldLength(collectionStats.sumTotalTermFreq() / (double) collectionStats.docCount());
+		stats.setDocFreq(0);
+		stats.setTotalTermFreq(0);
+		stats.setCollectionProbability(collectionModel.computeProbability(stats));
+		return new BasicSimScorer(stats);
+	}
+
 	// --------------------------------- Classes ---------------------------------
 
 	/**
@@ -305,7 +339,7 @@ public abstract class IndriSimilarity extends Similarity {
 
 		@Override
 		public double computeProbability(BasicStats stats) {
-			return ((double) stats.getTotalTermFreq()) / ((double) stats.getNumberOfFieldTokens());
+			return collectionProbability(stats.getTotalTermFreq(), stats.getNumberOfFieldTokens());
 		}
 
 		@Override

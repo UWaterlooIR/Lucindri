@@ -23,7 +23,7 @@ C2 (overlaps): o1:"10 20 10 20"  o2:"20 10 20"  o3:"10 10 20 20"  o4:"10 20"
 | 2 | `#or`, `#max`, `#wsum` vs **paper Eqs (3),(5),(7)** | **match** (both engines = paper) |
 | 2 | `#combine`, `#weight` vs **Indri `WeightedAndNode`** | **match** (normalized; see below) |
 | 2 | `#syn` (merged-term Dirichlet) | **match** (~1e-4) |
-| 2 | zero-cf (out-of-vocabulary) term in a belief op | **DIVERGES** — Indri floors `P(w|C)=0.5/|C|`; Lucindri drops the term (below) |
+| 2 | zero-cf (out-of-vocabulary) term in a belief op | **bug found + FIXED** — Lucindri now floors `P(w|C)=0.5/|C|` like Indri (below) |
 | 3 | `#1`, `#2` (C1), `#uw3`, `#band` | **match** |
 | 3 | `#uwN` occurrence-finding | **bug found + fixed** (see below) |
 | 3 | `#odN` ordered window over repeated terms | **bug found + FIXED** — ordered now = unordered = Indri (below) |
@@ -52,16 +52,25 @@ So Indri deliberately deviates from the literal Eq. (4); Lucindri's `IndriAndSco
 (`Σ boostᵢ·sᵢ / Σ boostᵢ`) matches Indri exactly. Verified to ~1e-6 on C1 and, as exact μ-independent
 constants (single-doc `s = log(tf/|d|)`), locked by `BeliefOperatorScoreTest`.
 
-### DIVERGES — out-of-vocabulary (zero collection frequency) term in a belief operator
+### FIXED — out-of-vocabulary (zero collection frequency) term in a belief operator
 For a query term absent from the whole collection (`cf = 0`, so `log P(w|C) = −∞`), Indri floors the
 collection probability: `TermScoreFunctionFactory.cpp:52` sets
 `collectionFrequency = occurrences ? occurrences/|C| : 1/(2·|C|)`, i.e. **`P(w|C) = 0.5/|C|`** — a
-deliberate underflow/`−∞` guard (a component term never zeroes the whole belief). **Lucindri has no
-such floor: it drops the zero-cf term** and scores as if it were absent. Example (single doc
-`"10 10 20"`, `999` absent): Indri `#combine(10 999) = −1.099`, `#or = −0.326`; Lucindri returns
-`−0.405` (= `s₁₀`) for `#combine`/`#or`/`#wsum` alike. Rare in practice (only OOV query terms), but a
-real, code-grounded difference in the log-space regime. Candidate fix: floor `cf` to `0.5` in
-Lucindri's Dirichlet/JM similarity to match Indri. Tracked in TASK-0010.
+deliberate underflow/`−∞` guard (a component term never zeroes the whole belief). Lucindri previously
+**dropped** the zero-cf term (it returned no scorer), so e.g. on single doc `"10 10 20"` with `999`
+absent it scored `#combine(10 999) = −0.405` (= `s₁₀`) instead of Indri's `−1.099`.
+
+**Fix (now matching Indri to ~1e-6):** (1) `IndriSimilarity.collectionProbability(cf,|C|)` floors
+`cf=0` to `1/(2|C|)`, shared by the Dirichlet/JM/default collection models; (2) an OOV term now
+produces an `IndriMissingTermScorer` — an empty iterator (it never drives candidates) that supplies
+the floored background via `smoothingScore`, so it contributes to a belief combination instead of
+being dropped. Locked by `BeliefOperatorScoreTest.oovTermContributesFlooredBackgroundNotDropped`.
+
+**Note (does an OOV query term match the `[OOV]` stopword placeholders?):** No. When Indri removes a
+stopword it leaves an `[OOV]` position that counts toward `|d|`/`|C|` but is **not a term in the
+vocabulary** — querying a removed stopword, or any never-seen token, returns `cf = 0` (verified with
+`dumpindex v`/`x`). So OOV query terms get the `0.5/|C|` floor and match nothing; they do not collide
+with removed-stopword positions.
 
 ## Phase 3 findings
 

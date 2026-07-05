@@ -62,7 +62,15 @@ public class IndriTermQuery extends Query {
 			termStats = searcher.termStatistics(IndriTermQuery.this.getTerm(), termStates);
 
 			if (termStats == null) {
-				this.simScorer = null; // term doesn't exist in any segment, we won't use similarity at all
+				// Out-of-vocabulary term (absent from the whole collection, cf=0). Rather than dropping
+				// it, contribute the floored background belief p(w|C)=1/(2|C|) to every candidate, as
+				// C++ Indri does (TermScoreFunctionFactory.cpp). See TASK-0010.
+				if (similarity instanceof org.lemurproject.lucindri.searcher.similarities.IndriSimilarity) {
+					this.simScorer = ((org.lemurproject.lucindri.searcher.similarities.IndriSimilarity) similarity)
+							.backgroundSimScorer(boost, collectionStats);
+				} else {
+					this.simScorer = null; // non-Indri similarity: preserve the old drop behavior
+				}
 			} else {
 				this.simScorer = similarity.scorer(boost, collectionStats, termStats);
 			}
@@ -89,9 +97,16 @@ public class IndriTermQuery extends Query {
 					context)) : "The top-reader used to create Weight is not the same as the current reader's top-reader ("
 							+ ReaderUtil.getTopLevelContext(context);
 			;
-			final TermsEnum termsEnum = getTermsEnum(context);
-			if (termsEnum == null || simScorer == null) {
+			if (simScorer == null) {
 				return null;
+			}
+			final TermsEnum termsEnum = getTermsEnum(context);
+			if (termsEnum == null) {
+				// OOV term: no postings in this segment. Contribute the background belief to every doc
+				// via smoothingScore; the empty iterator means it never drives candidate documents.
+				LeafSimScorer bgScorer = new LeafSimScorer(simScorer, context.reader(), term.field(),
+						scoreMode.needsScores());
+				return new IndriMissingTermScorer(this, bgScorer, this.boost);
 			}
 			LeafSimScorer scorer = new LeafSimScorer(simScorer, context.reader(), term.field(),
 					scoreMode.needsScores());

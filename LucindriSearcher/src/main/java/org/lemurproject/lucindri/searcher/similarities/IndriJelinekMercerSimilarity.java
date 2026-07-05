@@ -83,7 +83,7 @@ public class IndriJelinekMercerSimilarity extends LMSimilarity {
 
 		@Override
 		public double computeProbability(BasicStats stats) {
-			return ((float) stats.getTotalTermFreq()) / ((float) stats.getNumberOfFieldTokens());
+			return IndriSimilarity.collectionProbability(stats.getTotalTermFreq(), stats.getNumberOfFieldTokens());
 		}
 
 		@Override

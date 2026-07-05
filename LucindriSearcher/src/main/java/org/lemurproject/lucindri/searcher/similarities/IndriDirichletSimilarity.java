@@ -86,7 +86,7 @@ public class IndriDirichletSimilarity extends IndriSimilarity {
 
 		@Override
 		public double computeProbability(BasicStats stats) {
-			return ((double) stats.getTotalTermFreq()) / ((double) stats.getNumberOfFieldTokens());
+			return IndriSimilarity.collectionProbability(stats.getTotalTermFreq(), stats.getNumberOfFieldTokens());
 		}
 
 		@Override

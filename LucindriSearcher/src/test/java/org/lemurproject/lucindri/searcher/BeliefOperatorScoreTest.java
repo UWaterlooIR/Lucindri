@@ -75,4 +75,19 @@ public class BeliefOperatorScoreTest {
 		assertEquals(Math.log((0.7 * A + 0.3 * B) / (0.7 + 0.3)),
 				score(dir, "ws", "#wsum(0.7 alpha 0.3 beta)"), EPS);
 	}
+
+	// Out-of-vocabulary term (cf=0): Indri floors p(w|C)=1/(2|C|) and the term contributes a
+	// background belief rather than being dropped (TASK-0010). Here |C|=|d|=3, and TestIndex's default
+	// similarity is IndriDirichletSimilarity(mu=2000), so p(zzz|C)=1/6 and
+	// s_zzz = log((mu·1/6)/(|d|+mu)); #combine(alpha zzz) = (s_alpha + s_zzz)/2.
+	@Test
+	public void oovTermContributesFlooredBackgroundNotDropped(@TempDir Path dir) throws Exception {
+		double mu = 2000.0, C = 3.0, d = 3.0;
+		double sZzz = Math.log((mu * (0.5 / C)) / (d + mu));
+		double combineOov = score(dir, "co", "#combine(alpha zzz)");
+		assertEquals((SA + sZzz) / 2.0, combineOov, 1e-3, "OOV term must contribute the floored background");
+		// And it must NOT be dropped: including the very-negative OOV background drags the score well
+		// below the alpha-only score (which would be s_alpha ≈ -0.405).
+		assertTrue(combineOov < SA - 0.5, "OOV term was dropped (score == alpha-only)");
+	}
 }
