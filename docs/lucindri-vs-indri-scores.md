@@ -27,6 +27,7 @@ C2 (overlaps): o1:"10 20 10 20"  o2:"20 10 20"  o3:"10 10 20 20"  o4:"10 20"
 | 3 | `#1`, `#2` (C1), `#uw3`, `#band` | **match** |
 | 3 | `#uwN` occurrence-finding | **bug found + fixed** (see below) |
 | 3 | `#odN` ordered window over repeated terms | **bug found + FIXED** — ordered now = unordered = Indri (below) |
+| 4 | filters `#scoreif`/`#scoreifnot` vs Indri `#filreq`/`#filrej` | **match** (set + scores; below) |
 
 Phase 2 confirms at the score level what TASK-0008 concluded indirectly: the belief operators combine
 correctly; the earlier TREC divergence was analysis (tokenizer/doc-length), not the operators.
@@ -116,6 +117,16 @@ own unordered window. After the fix, ordered = unordered = Indri on `"10 10 20 2
 C1/C2, and on the simple cases (`10 20`, `10 30 20`) which were already correct. Locked by
 `ProximityCountTest` — **count-level** tests (single-doc index → `tf = round(L·e^score)`, μ-independent)
 that assert exact occurrence counts and fail on the pre-fix over-count.
+
+## Phase 4 — filter operators
+
+Lucindri `#scoreif`/`#scoreifnot` (TASK-0006) vs C++ Indri `#filreq`/`#filrej`, both `(condition
+scored)`. **Match at set and score level** on C1: `#filreq(c s)` keeps the documents matching the
+scored query `s` AND the filter `c`, ranked by `s` (the filter adds no score); `#filrej` keeps `s`'s
+matches that do *not* match `c`. Verified across a bare-term filter, a proximity filter (`#1(...)`,
+`#uw2(...)`), multi-term scored parts, and an OOV filter (which matches nothing — the `cf=0` floor is
+for *scoring*, not *matching*). E.g. `#filreq(30 #combine(10))` = `{d1}` (scored `{d1..d4}` ∩ filter
+`{d1,d5}`), scores identical to Indri. Locked by `FilterOperatorTest`.
 
 ## Reproduce
 
