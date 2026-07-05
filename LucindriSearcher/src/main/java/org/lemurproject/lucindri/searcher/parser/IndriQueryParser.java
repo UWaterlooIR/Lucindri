@@ -67,14 +67,23 @@ public class IndriQueryParser {
 	private String defaultField;
 
 	public IndriQueryParser() throws IOException {
-		analyzer = getConfigurableAnalyzer();
-		// defaultField = getDefaultField(reader);
-		defaultField = "fulltext";
+		this(DEFAULT_FIELD_NAME);
 	}
 
 	public IndriQueryParser(String field) throws IOException {
-		analyzer = getConfigurableAnalyzer();
-		// defaultField = getDefaultField(reader);
+		// Historical default analysis: kstem, stopwords removed, lowercased.
+		this(field, "kstem", true, true);
+	}
+
+	/**
+	 * @param field           default query field
+	 * @param stemmer         "kstem"/"krovetz", "porter", or "none" — must match the index's stemmer
+	 * @param removeStopwords whether to drop the English stop set from queries (match the index)
+	 * @param ignoreCase      whether to lowercase query terms (match the index)
+	 */
+	public IndriQueryParser(String field, String stemmer, boolean removeStopwords, boolean ignoreCase)
+			throws IOException {
+		analyzer = getConfigurableAnalyzer(stemmer, removeStopwords, ignoreCase);
 		defaultField = field;
 	}
 
@@ -96,11 +105,22 @@ public class IndriQueryParser {
 		return defaultFieldName;
 	}
 
-	private Analyzer getConfigurableAnalyzer() {
+	/**
+	 * Builds the query-time analyzer. Mirrors the index-time mapping in the indexer's
+	 * {@code ConfigurableAnalyzerFactory} so a query can be analyzed exactly as its index was:
+	 * "kstem"/"krovetz" -> KSTEM, "porter" -> PORTER, anything else (incl. "none") -> NONE.
+	 */
+	private Analyzer getConfigurableAnalyzer(String stemmer, boolean removeStopwords, boolean ignoreCase) {
 		EnglishAnalyzerConfigurable an = new EnglishAnalyzerConfigurable();
-		an.setLowercase(true);
-		an.setStopwordRemoval(true);
-		an.setStemmer(EnglishAnalyzerConfigurable.StemmerType.KSTEM);
+		an.setLowercase(ignoreCase);
+		an.setStopwordRemoval(removeStopwords);
+		EnglishAnalyzerConfigurable.StemmerType stemmerType = EnglishAnalyzerConfigurable.StemmerType.NONE;
+		if (stemmer != null && (stemmer.equalsIgnoreCase("kstem") || stemmer.equalsIgnoreCase("krovetz"))) {
+			stemmerType = EnglishAnalyzerConfigurable.StemmerType.KSTEM;
+		} else if (stemmer != null && stemmer.equalsIgnoreCase("porter")) {
+			stemmerType = EnglishAnalyzerConfigurable.StemmerType.PORTER;
+		}
+		an.setStemmer(stemmerType);
 		return an;
 	}
 

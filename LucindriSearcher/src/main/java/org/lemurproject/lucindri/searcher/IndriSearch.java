@@ -116,8 +116,11 @@ public class IndriSearch {
 			}
 			searcher.setSimilarity(similarity);
 
+			// Query analysis must match the index's analysis (stemmer + tokenizer especially);
+			// query-side stopword removal may legitimately differ from the documents'.
+			IndriQueryParser queryParser = new IndriQueryParser("fulltext", queryWrapper.getStemmer(),
+					queryWrapper.isRemoveStopwords(), queryWrapper.isIgnoreCase());
 			for (JsonIndriQuery query : queryWrapper.getQueries()) {
-				IndriQueryParser queryParser = new IndriQueryParser();
 				Query test = queryParser.parseQuery(query.getText());
 
 				if (test != null) {
@@ -167,21 +170,35 @@ public class IndriSearch {
 		org.w3c.dom.Document doc = dBuilder.parse(new InputSource(new StringReader(text)));
 
 		JsonIndriQueryWrapper queryWrapper = new JsonIndriQueryWrapper();
-		if (doc.getElementsByTagName("index") != null) {
-			queryWrapper.setIndex(doc.getElementsByTagName("index").item(0).getTextContent());
+		String index = optText(doc, "index");
+		if (index != null) {
+			queryWrapper.setIndex(index);
 		} else {
 			System.out.println("Index must be defined in query parameters.");
 			System.exit(0);
 		}
 
-		if (doc.getElementsByTagName("count") != null) {
-			queryWrapper.setCount(Integer.valueOf(doc.getElementsByTagName("count").item(0).getTextContent()));
-		} else {
-			queryWrapper.setCount(100);
+		String count = optText(doc, "count");
+		queryWrapper.setCount(count != null ? Integer.valueOf(count) : 100);
+
+		String rule = optText(doc, "rule");
+		if (rule != null) {
+			queryWrapper.setRule(rule);
 		}
 
-		if (doc.getElementsByTagName("rule") != null) {
-			queryWrapper.setRule(doc.getElementsByTagName("rule").item(0).getTextContent());
+		// Optional query-time analysis config; must match the index's analysis. Omitted -> historical
+		// defaults (kstem, stopwords removed, lowercased).
+		String stemmer = optText(doc, "stemmer");
+		if (stemmer != null) {
+			queryWrapper.setStemmer(stemmer);
+		}
+		String removeStopwords = optText(doc, "removeStopwords");
+		if (removeStopwords != null) {
+			queryWrapper.setRemoveStopwords(Boolean.valueOf(removeStopwords));
+		}
+		String ignoreCase = optText(doc, "ignoreCase");
+		if (ignoreCase != null) {
+			queryWrapper.setIgnoreCase(Boolean.valueOf(ignoreCase));
 		}
 
 		List<JsonIndriQuery> queries = new ArrayList<>();
@@ -200,6 +217,15 @@ public class IndriSearch {
 		}
 		queryWrapper.setQueries(queries);
 		return queryWrapper;
+	}
+
+	/** Text content of the first element with the given tag, or null if absent. */
+	private static String optText(org.w3c.dom.Document doc, String tag) {
+		NodeList nodes = doc.getElementsByTagName(tag);
+		if (nodes != null && nodes.getLength() > 0 && nodes.item(0) != null) {
+			return nodes.item(0).getTextContent();
+		}
+		return null;
 	}
 
 	private static String readFile(String filePath) {
