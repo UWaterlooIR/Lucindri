@@ -258,6 +258,31 @@ pre-change Lucindri index. Reproduce: build two Lucindri indexes from
 `/ssd-8TB/trec-compare/fuzzfull/isrc/integers.trec` (`exactDocumentLength` on/off), score `#combine(525)`
 against them and the Indri index at `fuzzfull/i`, and join on docno.
 
+**Full multi-operator fuzz (the TASK-0011 differential, re-run on the exact-length index).** 1,500 fuzzed
+queries exercising every belief/proximity/filter operator and their nestings (seed 7), vs the Indri oracle,
+per-query max-Δ distribution:
+
+| band (per-query max Δ) | NORM (default) | EXACT (`exactDocumentLength=true`) |
+|---|---|---|
+| median max Δ | 0.0589 | **0.0000** |
+| ≤ 0.05 (noise) | 322 | **1158** |
+| 0.05–0.3 (**norm-quantization residual**) | **939** | **103** |
+| > 0.3 (structural) | 132 | 132 (unchanged) |
+
+Exact length **eliminates the quantization residual across all operator interactions**, not just single
+terms: median max-Δ 0.059 → 0.000; the 0.05–0.3 band collapses 939 → 103. Crucially, **every remaining
+divergence is length-independent** (its Δ is ~identical with the flag on or off), so exact length correctly
+does not touch it. Confirmed by construction:
+- Of queries with **no** nested filter, **884/887 (99.7 %)** now match Indri to ≤ 0.05 (median exactly 0).
+- All 103 remaining 0.05–0.3 queries — and the 132 `>0.3` — contain a nested **filter-in-belief**
+  (`#scoreif`/`#scoreifnot`): the cataloged Phase-5 `WeightedAndNode` renormalization, a different root
+  cause (§5), not quantization.
+- The only 3 non-filter queries above 0.05 are all **nested `#band`** (e.g. `#band( 355 #band( 620 395 ) )`),
+  with exactΔ ≈ normΔ (0.68/1.10) — a separate pre-existing structural difference, also not length-related.
+
+Reproduce: `fuzz_queries.py 7 1500 800 qi.frag ql.frag`, wrap and run against `fuzzfull/i` +
+`el0012/{lexact,lnorm}`, then `diff_fuzz.py fi.run fl_{exact,norm}.run`.
+
 ## Reproduce
 
 `scripts/trec-comparison/score_probe.sh` builds C1/C2 in both engines and prints the per-doc
