@@ -134,6 +134,43 @@ public class BeliefOperatorScoreTest {
 		assertTrue(Math.abs(skew - flip) > 0.1, "weights on single-operand children must not be dropped");
 	}
 
+	// A proximity/synonym term-op absent from a document must smooth with its COLLECTION-WIDE cf, not
+	// the cf of just the segment that document lives in. Regression (TASK-0011, 9th bug): the term-op's
+	// TermStatistics was computed from the per-segment inverted list built in getScorer, so on a
+	// multi-segment index an absent term-op fell back to a segment-local (often 0 -> floored) cf. This
+	// barely moves a matching score (tf dominates) but corrupts the belief background (tf=0 -> the score
+	// is entirely log(mu*cf/|C| / (|d|+mu))). Two parts: part 0 has three "cat dog" adjacencies, the
+	// query doc "sun moon" is in part 1 where #1(cat dog) never occurs. Its background must use cf=3.
+	@Test
+	public void proximityBackgroundUsesCollectionWideCfAcrossSegments(@TempDir Path dir) throws Exception {
+		try (TestIndex ix = TestIndex.builder()
+				.add("a1", "cat dog").add("a2", "cat dog").add("a3", "cat dog")
+				.newPart()
+				.add("q", "sun moon")
+				.build(dir)) {
+			double mu = 2000.0;
+			double C = 8.0;    // 3 * |cat dog|(2) + |sun moon|(2)
+			double d = 2.0;    // |q| = |sun moon|
+			double sSun = Math.log((1.0 + mu * (1.0 / C)) / (d + mu));      // cf(sun)=1 collection-wide
+			double bgProx = Math.log((mu * (3.0 / C)) / (d + mu));          // cf(#1(cat dog))=3, not 0
+			double expected = (sSun + bgProx) / 2.0;
+			double q = qScore(ix.run("#combine( sun #1( cat dog ) )", 10));
+			assertEquals(expected, q, 1e-3, "absent term-op must smooth with collection-wide cf, not segment-local");
+			// Guard against the pre-fix floored (cf=0 -> 0.5) background, which is markedly more negative.
+			double bgFloored = Math.log((mu * (0.5 / C)) / (d + mu));
+			assertTrue(q > (sSun + bgFloored) / 2.0 + 0.1, "background must not collapse to the floored cf=0 value");
+		}
+	}
+
+	private static double qScore(List<TestIndex.Hit> hits) {
+		for (TestIndex.Hit h : hits) {
+			if ("q".equals(h.externalId)) {
+				return h.score;
+			}
+		}
+		throw new AssertionError("query doc 'q' not in results");
+	}
+
 	// Out-of-vocabulary term (cf=0): Indri floors p(w|C)=1/(2|C|) and the term contributes a
 	// background belief rather than being dropped (TASK-0010). Here |C|=|d|=3, and TestIndex's default
 	// similarity is IndriDirichletSimilarity(mu=2000), so p(zzz|C)=1/6 and

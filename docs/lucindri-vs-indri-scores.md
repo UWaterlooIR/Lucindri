@@ -182,8 +182,8 @@ Built a realistic integer collection from **20,000 LATimes documents** via Indri
 (`dumpindex il` → global `term→id` by cf → integer trectext → index in both engines), so tokenizer/
 stemmer/stopwords are neutral but the distribution is real English (80,053 ids, |C|≈10M; `|C|`, `cf`,
 `numDocs`, positions align exactly). Fuzzed **1,500 legal Indri queries** (all operators, random
-nesting, both dialects) and diffed per-document scores. **Three real bugs found and fixed** — none
-visible on the tiny C1/C2 collections:
+nesting, both dialects) and diffed per-document scores. **Four real bugs found and fixed** — none
+visible on the tiny C1/C2 collections (the 4th needed the full multi-segment LATimes):
 
 1. **cf=0 proximity window dropped instead of floored.** A window whose operands both exist but which
    never co-occurs (e.g. two common terms never adjacent) was dropped; Indri floors it as a `cf=0`
@@ -193,8 +193,25 @@ visible on the tiny C1/C2 collections:
    no-scores context. Fixed: always build `TermStates` with stats.
 3. **`#syn` with an OOV operand returned empty.** The OOV-operand floor (correct for windows) was
    wrong for synonyms, which union operands and should skip an OOV one. Fixed with an operator hook.
+4. **Term-op collection frequency was segment-local, not collection-wide** (found only after scaling to
+   the full 131,896-doc / 6-segment LATimes). A proximity/synonym term-op (`#N`, `#uwN`, `#syn`,
+   `#band`) derived its `cf` from the inverted list built inside `getScorer(context)`, which only sees
+   **one segment**. Lucene aggregates a plain term's `cf` collection-wide (`TermStates.build`), which is
+   what Indri uses. The error is invisible on a *matching* document (there `tf` dominates the
+   `tf + μ·cf/|C|` numerator) but corrupts the **smoothing/background** score of a term-op that is
+   absent from a document in a belief combination (`tf=0` → the score is entirely
+   `log(μ·cf/|C| / (|d|+μ))`). Worse, when the term-op was absent from the *whole segment* the code fell
+   all the way back to the floored `cf=0` background. Example: `#weight(0.79 #syn(34533 28149) 0.48
+   #syn(442 517) 0.58 #1(387 1767))` on its top doc `d130788` (a high docid, in a small late segment)
+   diverged by **Δ=2.05** (Indri −9.787 vs Lucindri −11.842); after the fix Δ=0.007 (norm noise).
+   Fixed in `IndriTermOpWeight`: compute the derived term's `cf`/`df` once across **all** leaves
+   (`ensureCollectionStats`), then score each leaf's positions against those collection-wide stats; an
+   absent-in-leaf term-op now returns an empty-positions scorer that still smooths with the correct
+   background instead of collapsing to the floor. This was the single largest source of the remaining
+   structural (non-filter) divergences at scale.
 
-Each is locked by a regression test. After the fixes, **no further structural bug** was found; the
+Each is locked by a regression test (the 4th, `proximityBackgroundUsesCollectionWideCfAcrossSegments`,
+uses a two-part `MultiReader` so the term-op is absent from the query doc's segment). After the fixes, **no further structural bug** was found; the
 remaining divergences are:
 
 - **Filter nested inside a belief operator** (98 % of the Δ>1 queries): the Phase-5 cataloged

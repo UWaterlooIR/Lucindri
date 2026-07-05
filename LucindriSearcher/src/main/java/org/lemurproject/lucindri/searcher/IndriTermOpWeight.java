@@ -14,9 +14,13 @@ package org.lemurproject.lucindri.searcher;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.TreeMap;
 
+import org.apache.lucene.index.IndexReaderContext;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.PostingsEnum;
+import org.apache.lucene.index.ReaderUtil;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BulkScorer;
 import org.apache.lucene.search.CollectionStatistics;
@@ -38,6 +42,14 @@ public abstract class IndriTermOpWeight extends IndriWeight {
 	private final Similarity similarity;
 	private CollectionStatistics collectionStats;
 	private Similarity.SimScorer simScorer;
+	// Collection-wide statistics for the derived proximity/synonym "term", computed once across all
+	// leaves (like Lucene's TermStates for a plain term). The per-leaf inverted list built in
+	// getScorer only knows this segment's occurrences, so using its cf gave a SEGMENT-LOCAL collection
+	// frequency. That barely moves a matching score (tf dominates tf + mu*cf/|C|) but corrupts the
+	// smoothing/background score of an absent term-op in a belief combination (tf=0 -> the score is
+	// entirely log(mu*cf/|C| / (|d|+mu))). Indri uses the collection-wide cf. (TASK-0011, 9th bug)
+	private boolean statsComputed = false;
+	private TermStatistics collectionTermStats;
 
 	protected IndriTermOpWeight(IndriProximityQuery query, IndexSearcher searcher, String field, float boost)
 			throws IOException {
@@ -74,7 +86,13 @@ public abstract class IndriTermOpWeight extends IndriWeight {
 		return null;
 	}
 
-	protected Scorer getScorer(LeafReaderContext context) throws IOException {
+	/**
+	 * Builds this leaf's proximity/synonym inverted list. Returns {@code null} only when an
+	 * out-of-vocabulary operand forces a window/AND operator empty (a synonym instead skips the OOV
+	 * operand and unions the rest). When the operator's operands exist but produce no postings in this
+	 * leaf, an empty enum is returned so the collection-wide cf can still smooth this leaf's documents.
+	 */
+	private IndriTermOpEnum buildLeafEnum(LeafReaderContext context) throws IOException {
 		List<IndriDocAndPostingsIterator> iterators = new ArrayList<>();
 		for (Weight w : weights) {
 			Scorer scorer = w.scorer(context);
@@ -83,7 +101,7 @@ public abstract class IndriTermOpWeight extends IndriWeight {
 				// the operator can never occur, so it becomes a floored cf=0 term; for a synonym the OOV
 				// operand contributes no positions and is skipped (union the rest). (TASK-0010/0011)
 				if (oovOperandForcesEmpty()) {
-					return backgroundScorer(context);
+					return null;
 				}
 				continue;
 			}
@@ -106,25 +124,63 @@ public abstract class IndriTermOpWeight extends IndriWeight {
 		}
 
 		if (iterators.isEmpty()) {
-			// All operands were OOV/absent -> the whole term-op is a cf=0 term (floored background).
+			// No operand postings in this leaf (all operands absent from this segment, or a synonym whose
+			// operands are all OOV). Return an empty enum: it matches nothing here, but if the term-op
+			// occurs elsewhere in the collection its collection-wide cf still smooths this leaf's docs.
+			return new IndriTermOpEnum(new IndriInvertedList(field));
+		}
+		return getProximityIterator(iterators);
+	}
+
+	/**
+	 * Computes the derived term-op's collection-wide document frequency and collection frequency by
+	 * building the inverted list for every leaf once, so the smoothing background uses the same cf
+	 * Indri does. The per-leaf lists are discarded here (rebuilt lazily per leaf in
+	 * {@link #getScorer}) to keep peak memory bounded on very large indexes.
+	 */
+	private synchronized void ensureCollectionStats(LeafReaderContext context) throws IOException {
+		if (statsComputed) {
+			return;
+		}
+		long totalDocFreq = 0;
+		long totalTermFreq = 0;
+		IndexReaderContext top = ReaderUtil.getTopLevelContext(context);
+		for (LeafReaderContext leaf : top.leaves()) {
+			IndriTermOpEnum leafEnum = buildLeafEnum(leaf);
+			if (leafEnum == null) {
+				continue; // OOV operand forces the operator empty in every leaf
+			}
+			for (TreeMap<Integer, IndriDocumentPosting> postings : leafEnum.getInvList().getDocPostings().values()) {
+				totalDocFreq++;
+				totalTermFreq += postings.size();
+			}
+		}
+		if (totalDocFreq > 0) {
+			collectionTermStats = new TermStatistics(new Term(field, "NEAR").bytes(), totalDocFreq, totalTermFreq);
+		} else {
+			collectionTermStats = null;
+		}
+		statsComputed = true;
+	}
+
+	protected Scorer getScorer(LeafReaderContext context) throws IOException {
+		ensureCollectionStats(context);
+		if (collectionTermStats == null) {
+			// cf=0 across the whole collection: an OOV operand forced the operator empty, or a window
+			// whose operands exist but never co-occur anywhere. Like Indri, a floored cf=0 term -- it
+			// matches nothing on its own but contributes the floored background p(w|C)=1/(2|C|) to a
+			// belief combination. (TASK-0011)
 			return backgroundScorer(context);
 		}
-
-		IndriTermOpEnum postingsEnum = getProximityIterator(iterators);
-		TermStatistics termStats = postingsEnum.getInvList().getTermStatistics();
-		Scorer scorer = null;
-		if (termStats != null) {
-			this.simScorer = similarity.scorer(boost, collectionStats, termStats);
-			LeafSimScorer leafScorer = new LeafSimScorer(simScorer, context.reader(), field, true);
-			scorer = new IndriTermOpScorer(this, postingsEnum, leafScorer, boost);
-		} else {
-			// The window never occurs in the collection (cf=0), even though its operands exist (e.g. two
-			// common terms that are never adjacent). Like Indri, it becomes a cf=0 term: it matches no
-			// document on its own but contributes the floored background p(w|C)=1/(2|C|) to a belief
-			// combination. (TASK-0011) Without this the window is dropped, over-scoring belief combos.
-			scorer = backgroundScorer(context);
+		IndriTermOpEnum postingsEnum = buildLeafEnum(context);
+		if (postingsEnum == null) {
+			postingsEnum = new IndriTermOpEnum(new IndriInvertedList(field));
 		}
-		return scorer;
+		// Score with the COLLECTION-WIDE cf (not this leaf's local count) so an absent term-op smooths
+		// with the same background Indri uses; positions/matches still come from this leaf's list.
+		this.simScorer = similarity.scorer(boost, collectionStats, collectionTermStats);
+		LeafSimScorer leafScorer = new LeafSimScorer(simScorer, context.reader(), field, true);
+		return new IndriTermOpScorer(this, postingsEnum, leafScorer, boost);
 	}
 
 	protected IndriTermOpEnum getProximityIterator(List<IndriDocAndPostingsIterator> iterators) throws IOException {

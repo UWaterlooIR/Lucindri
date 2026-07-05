@@ -13,9 +13,6 @@ package org.lemurproject.lucindri.searcher;
 
 import java.util.TreeMap;
 
-import org.apache.lucene.index.Term;
-import org.apache.lucene.search.TermStatistics;
-
 public class IndriInvertedList {
 
 	private final String field;
@@ -72,19 +69,10 @@ public class IndriInvertedList {
 		}
 	}
 
-	public TermStatistics getTermStatistics() {
-		Term dummyTerm = new Term(field, "NEAR");
-		int docFreq = docPostings.size();
-		int totalTermFreq = 0;
-		for (TreeMap<Integer, IndriDocumentPosting> postings : docPostings.values()) {
-			totalTermFreq += postings.size();
-		}
-		TermStatistics termStats = null;
-		if (docFreq > 0) {
-			termStats = new TermStatistics(dummyTerm.bytes(), docFreq, totalTermFreq);
-		}
-
-		return termStats;
-	}
+	// NOTE: this list only ever holds ONE segment's postings (it is built per leaf in
+	// IndriTermOpWeight#getScorer), so it must NOT be used to derive collection statistics for a derived
+	// proximity/synonym term. Collection-wide cf/df are aggregated across all leaves in
+	// IndriTermOpWeight#ensureCollectionStats. (A former getTermStatistics() here returned segment-local
+	// stats, which corrupted the smoothing background of an absent term-op in a belief combination.)
 
 }
