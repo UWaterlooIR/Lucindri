@@ -183,7 +183,11 @@ public class IndriTermQuery extends Query {
 		final IndexReaderContext context = searcher.getTopReaderContext();
 		final TermStates termState;
 		if (perReaderTermState == null || perReaderTermState.wasBuiltFor(context) == false) {
-			termState = TermStates.build(context, term, scoreMode.needsScores());
+			// Always collect term statistics: Indri term scoring needs cf/df, and a term used only for
+			// matching (e.g. a proximity operand inside a filter CONDITION, created with
+			// COMPLETE_NO_SCORES by IndriWeight) must not fail termStatistics() with "needsStats=false".
+			// (TASK-0011)
+			termState = TermStates.build(context, term, true);
 		} else {
 			// PRTS was pre-build for this IS
 			termState = this.perReaderTermState;

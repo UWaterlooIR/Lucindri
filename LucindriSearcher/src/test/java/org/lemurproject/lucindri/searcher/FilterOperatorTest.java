@@ -71,6 +71,18 @@ public class FilterOperatorTest {
 		}
 	}
 
+	// Regression (TASK-0011, found by fuzzing): a proximity operator as a filter CONDITION must not
+	// throw "Cannot call docFreq() when needsStats=false" — its term operands are created in a
+	// no-scores context, so term statistics must still be collected.
+	@Test
+	public void proximityConditionInFilterDoesNotThrow(@TempDir Path dir) throws Exception {
+		try (TestIndex ix = c1(dir)) {
+			ix.ids("#scoreifnot( #uw2( alpha beta ) #combine( gamma ) )", 10);
+			ix.ids("#scoreif( #uw4( beta gamma ) #combine( alpha ) )", 10);
+			ix.ids("#scoreif( #1( alpha beta ) #max( gamma alpha ) )", 10);
+		}
+	}
+
 	@Test
 	public void filterContributesNoScore(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = c1(dir)) {
