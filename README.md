@@ -147,6 +147,8 @@ For example:
 President.fulltext Obama.title
 ```
 
+> **Caveat — field behavior is UNTESTED against Indri.** All of Lucindri's conformance work (score/rank comparisons vs C++ Indri) used only the default `fulltext` field. Field-restricted scoring (`term.field`), documents with multiple named fields, and repeated/duplicate fields of the same name have **not** been differentially tested against Indri, so their equivalence to Indri's behavior is **unknown**. Known concerns include how the document length (`|d|`) and collection statistics are scoped for a field-restricted term, and how proximity behaves across repeated field values (Lucindri concatenates same-name fields with no position gap). Treat field queries as **not yet verified for Indri parity**. (Differential testing is deferred — see `tasks/TASK-0017.md`.)
+
 If a query has no leading operator (e.g. `dog training`), Lucindri wraps the terms in `#combine`.
 
 ### Lucindri implements these Indri belief operators:
