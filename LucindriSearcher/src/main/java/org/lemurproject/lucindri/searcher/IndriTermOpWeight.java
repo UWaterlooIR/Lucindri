@@ -53,22 +53,39 @@ public abstract class IndriTermOpWeight extends IndriWeight {
 		}
 	}
 
+	/**
+	 * Whether an out-of-vocabulary operand forces the whole operator to be empty. True for window and
+	 * boolean-AND operators (a window/AND containing a term that never occurs can never match — it
+	 * becomes a cf=0 term). {@link IndriSynonymWeight} overrides this to false: a synonym skips an OOV
+	 * operand and unions the remaining ones. (TASK-0011)
+	 */
+	protected boolean oovOperandForcesEmpty() {
+		return true;
+	}
+
+	/** Floored-background scorer for a cf=0 term/proximity: empty iterator + p(w|C)=1/(2|C|). */
+	private Scorer backgroundScorer(LeafReaderContext context) throws IOException {
+		if (similarity instanceof org.lemurproject.lucindri.searcher.similarities.IndriSimilarity) {
+			Similarity.SimScorer bg = ((org.lemurproject.lucindri.searcher.similarities.IndriSimilarity) similarity)
+					.backgroundSimScorer(boost, collectionStats);
+			LeafSimScorer leaf = new LeafSimScorer(bg, context.reader(), field, true);
+			return new IndriMissingTermScorer(this, leaf, boost);
+		}
+		return null;
+	}
+
 	protected Scorer getScorer(LeafReaderContext context) throws IOException {
 		List<IndriDocAndPostingsIterator> iterators = new ArrayList<>();
 		for (Weight w : weights) {
 			Scorer scorer = w.scorer(context);
 			if (scorer instanceof IndriMissingTermScorer) {
-				// An operand is out-of-vocabulary (cf=0, absent from the collection). The proximity can
-				// never occur, so — like Indri — the whole operator becomes a cf=0 term: it matches no
-				// document on its own but contributes the floored background p(w|C)=1/(2|C|) to a belief
-				// combination. (TASK-0010)
-				if (similarity instanceof org.lemurproject.lucindri.searcher.similarities.IndriSimilarity) {
-					Similarity.SimScorer bg = ((org.lemurproject.lucindri.searcher.similarities.IndriSimilarity) similarity)
-							.backgroundSimScorer(boost, collectionStats);
-					LeafSimScorer leaf = new LeafSimScorer(bg, context.reader(), field, true);
-					return new IndriMissingTermScorer(this, leaf, boost);
+				// An operand is out-of-vocabulary (cf=0, absent from the collection). For a window / AND
+				// the operator can never occur, so it becomes a floored cf=0 term; for a synonym the OOV
+				// operand contributes no positions and is skipped (union the rest). (TASK-0010/0011)
+				if (oovOperandForcesEmpty()) {
+					return backgroundScorer(context);
 				}
-				return null;
+				continue;
 			}
 			if (scorer != null) {
 				DocIdSetIterator docIter = scorer.iterator();
@@ -89,7 +106,8 @@ public abstract class IndriTermOpWeight extends IndriWeight {
 		}
 
 		if (iterators.isEmpty()) {
-			return null;
+			// All operands were OOV/absent -> the whole term-op is a cf=0 term (floored background).
+			return backgroundScorer(context);
 		}
 
 		IndriTermOpEnum postingsEnum = getProximityIterator(iterators);
@@ -99,15 +117,12 @@ public abstract class IndriTermOpWeight extends IndriWeight {
 			this.simScorer = similarity.scorer(boost, collectionStats, termStats);
 			LeafSimScorer leafScorer = new LeafSimScorer(simScorer, context.reader(), field, true);
 			scorer = new IndriTermOpScorer(this, postingsEnum, leafScorer, boost);
-		} else if (similarity instanceof org.lemurproject.lucindri.searcher.similarities.IndriSimilarity) {
+		} else {
 			// The window never occurs in the collection (cf=0), even though its operands exist (e.g. two
 			// common terms that are never adjacent). Like Indri, it becomes a cf=0 term: it matches no
 			// document on its own but contributes the floored background p(w|C)=1/(2|C|) to a belief
 			// combination. (TASK-0011) Without this the window is dropped, over-scoring belief combos.
-			Similarity.SimScorer bg = ((org.lemurproject.lucindri.searcher.similarities.IndriSimilarity) similarity)
-					.backgroundSimScorer(boost, collectionStats);
-			LeafSimScorer leaf = new LeafSimScorer(bg, context.reader(), field, true);
-			scorer = new IndriMissingTermScorer(this, leaf, boost);
+			scorer = backgroundScorer(context);
 		}
 		return scorer;
 	}

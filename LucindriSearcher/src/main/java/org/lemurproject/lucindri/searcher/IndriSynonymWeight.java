@@ -24,6 +24,16 @@ public class IndriSynonymWeight extends IndriTermOpWeight {
 		super(query, searcher, field, boost);
 	}
 
+	/**
+	 * A synonym unions its operands, so an out-of-vocabulary operand simply contributes no positions
+	 * and is skipped — unlike a window/AND, where an absent operand makes the whole operator empty.
+	 * (TASK-0011)
+	 */
+	@Override
+	protected boolean oovOperandForcesEmpty() {
+		return false;
+	}
+
 	protected IndriInvertedList createInvertedList(List<IndriDocAndPostingsIterator> iterators) throws IOException {
 		IndriInvertedList invList = new IndriInvertedList(getField());
 

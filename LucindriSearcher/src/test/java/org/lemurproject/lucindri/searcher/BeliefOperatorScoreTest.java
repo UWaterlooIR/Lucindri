@@ -76,6 +76,20 @@ public class BeliefOperatorScoreTest {
 				score(dir, "ws", "#wsum(0.7 alpha 0.3 beta)"), EPS);
 	}
 
+	// #syn unions its operands, so an OOV operand is skipped (unlike a window, which goes empty).
+	// Found by fuzzing (TASK-0011): #syn(real OOV) wrongly returned empty. doc "alpha beta gamma".
+	@Test
+	public void synonymSkipsOovOperand(@TempDir Path dir) throws Exception {
+		try (TestIndex ix = TestIndex.builder().add("d", "alpha beta gamma").build(dir)) {
+			java.util.List<TestIndex.Hit> h = ix.run("#syn( alpha zzz )", 10);
+			assertTrue(!h.isEmpty(), "syn with an OOV operand must union the real operands, not go empty");
+			// merged term = {alpha}: tf=1, cf=1, |C|=|d|=3 -> log(1/3) (mu-independent).
+			assertEquals(Math.log(1.0 / 3.0), h.get(0).score, 1e-3);
+			// all-OOV synonym -> cf=0 -> matches nothing.
+			assertTrue(ix.run("#syn( zzz zzz2 )", 10).isEmpty(), "all-OOV synonym must match nothing");
+		}
+	}
+
 	// A window whose operands both exist but which never co-occurs (cf=0) is also a cf=0 term: it
 	// matches nothing on its own but floors its background in a belief combination (TASK-0011). doc
 	// "alpha beta gamma": #1(gamma alpha) never occurs (alpha precedes gamma) though both terms exist.
