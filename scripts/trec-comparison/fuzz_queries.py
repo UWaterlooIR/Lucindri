@@ -19,7 +19,12 @@ def proximity(d):
     k=rng.randint(2,3); ops=' '.join(prox_operand(d-1) for _ in range(k))
     if op=='#band': return "#band( %s )"%ops
     if op=='#uw': return "#uw%d( %s )"%(rng.randint(2,12),ops)
-    if op=='#od': return "#%d( %s )"%(rng.randint(2,6),ops)
+    if op=='#od':
+        # Ordered window. #N and Indri's canonical #odN spelling are the same operator in BOTH
+        # engines (Indri natively; Lucindri via the TASK-0014 alias), so exercise both spellings —
+        # they must produce identical scores. The draw is identical across dialects (same RNG state).
+        n=rng.randint(2,6)
+        return ("#od%d( %s )" if rng.random()<0.5 else "#%d( %s )")%(n,ops)
     return "#1( %s )"%ops
 def belief(d, dialect):
     if d<=0: return term()
