@@ -73,8 +73,15 @@ public class IndriQueryParser {
 	private final static Set<String> KNOWN_OPERATORS = Set.of(AND, COMBINE, WEIGHT, WAND, WSUM, OR, NOT,
 			MAX, SYNONYM, BAND, NEAR, WINDOW, SCOREIF, SCOREIFNOT);
 
+	/** Upper bound on a proximity window distance (guards int overflow and pathological inputs). (TASK-0015) */
+	private final static int MAX_WINDOW_DISTANCE = 1_000_000;
+	/** Cap on query-tree nesting depth, so deeply nested queries error instead of StackOverflow. (TASK-0015) */
+	private final static int MAX_PARSE_DEPTH = 128;
+
 	private final Analyzer analyzer;
 	private String defaultField;
+	/** Current recursion depth of {@link #parseQueryString}; reset per {@link #parseQuery}. (TASK-0015) */
+	private int parseDepth;
 
 	public IndriQueryParser() throws IOException {
 		this(DEFAULT_FIELD_NAME);
@@ -188,9 +195,13 @@ public class IndriQueryParser {
 			operatorNameLowerCase = String.join("/", NEAR, operatorNameLowerCase);
 		} else if (operatorNameLowerCase.matches("od\\d+")) {
 			operatorNameLowerCase = String.join("/", NEAR, operatorNameLowerCase.substring(2));
-		} else if (operatorNameLowerCase.startsWith(UNORDER_WINDOW)) {
-			String[] parts = operatorNameLowerCase.split(UNORDER_WINDOW);
-			operatorNameLowerCase = String.join("/", WINDOW, parts[1]);
+		} else if (operatorNameLowerCase.matches("uw\\d+")) {
+			operatorNameLowerCase = String.join("/", WINDOW, operatorNameLowerCase.substring(2));
+		} else if (operatorNameLowerCase.equals("od") || operatorNameLowerCase.equals(UNORDER_WINDOW)) {
+			// #od / #uw with no window size. (Previously #uw split to an empty array and threw
+			// ArrayIndexOutOfBounds; now a clear error.) (TASK-0015)
+			syntaxError("proximity operator #" + operatorNameLowerCase + " requires a window size, e.g. #"
+					+ operatorNameLowerCase + "5");
 		}
 
 		// Remove the distance argument to proximity operators.
@@ -202,7 +213,7 @@ public class IndriQueryParser {
 			}
 
 			operatorNameLowerCase = substrings[0];
-			operatorDistance = Integer.parseInt(substrings[1]);
+			operatorDistance = parseWindowDistance(substrings[1]);
 		}
 
 		// Reject any operator Lucindri does not implement, rather than silently degrading it to #and.
@@ -218,6 +229,18 @@ public class IndriQueryParser {
 		operatorQuery.setOccur(occur);
 
 		return operatorQuery;
+	}
+
+	/** Parse and validate a proximity window distance; reject non-numeric or out-of-range. (TASK-0015) */
+	private int parseWindowDistance(String s) {
+		if (!s.matches("\\d{1,7}")) {
+			syntaxError("invalid window distance '" + s + "'");
+		}
+		int distance = Integer.parseInt(s);
+		if (distance < 1 || distance > MAX_WINDOW_DISTANCE) {
+			syntaxError("window distance out of range (1.." + MAX_WINDOW_DISTANCE + "): " + distance);
+		}
+		return distance;
 	}
 
 	private class PopWeight {
@@ -257,8 +280,21 @@ public class IndriQueryParser {
 			syntaxError("Missing weight or query argument");
 		}
 
+		Float value;
+		try {
+			value = Float.valueOf(substrings[0]);
+		} catch (NumberFormatException e) {
+			// A weighted operator (#weight/#wand/#wsum) expects "weight operand" pairs; a non-numeric
+			// weight is a malformed query, not a crash. (TASK-0015)
+			syntaxError("invalid weight '" + substrings[0] + "' (expected a number)");
+			throw new AssertionError("unreachable"); // syntaxError always throws
+		}
+		if (value.isNaN() || value.isInfinite()) {
+			syntaxError("invalid weight '" + substrings[0] + "'");
+		}
+
 		PopWeight popWeight = new PopWeight();
-		popWeight.setWeight(Float.valueOf(substrings[0]));
+		popWeight.setWeight(value);
 		popWeight.setQueryString(substrings[1]);
 
 		return popWeight;
@@ -276,8 +312,10 @@ public class IndriQueryParser {
 
 		int i = indexOfBalencingParen(argString);
 
-		if (i < 0) { // Query syntax error. The parser
-			i = argString.length(); // handles it. Here, just don't fail.
+		if (i < 0) {
+			// A subquery whose parentheses never balance. The top-level check normally catches this;
+			// guard here too so we never fall into substring() out of bounds. (TASK-0015)
+			syntaxError("unbalanced parentheses in subquery");
 		}
 
 		String subquery = argString.substring(0, i + 1);
@@ -333,15 +371,37 @@ public class IndriQueryParser {
 	}
 
 	private QueryParserQuery parseQueryString(String queryString, Occur occur) {
+		// Guard recursion depth so a deeply nested query errors cleanly instead of StackOverflow. The
+		// finally decrements even on a thrown syntax error, so sibling subqueries do not accumulate depth.
+		// (TASK-0015)
+		if (++parseDepth > MAX_PARSE_DEPTH) {
+			parseDepth--;
+			syntaxError("query nesting too deep (limit " + MAX_PARSE_DEPTH + ")");
+		}
+		try {
+			return parseQueryStringInner(queryString, occur);
+		} finally {
+			parseDepth--;
+		}
+	}
+
+	private QueryParserQuery parseQueryStringInner(String queryString, Occur occur) {
 		// Create the query tree
-		// This simple parser is sensitive to parenthensis placement, so
-		// check for basic errors first.
+		// This simple parser is sensitive to parenthesis placement, so check for basic errors first.
 		queryString = queryString.trim(); // The last character should be ')'
 
-		if ((countChars(queryString, '(') == 0) || (countChars(queryString, '(') != countChars(queryString, ')'))
-				|| (indexOfBalencingParen(queryString) != (queryString.length() - 1))) {
-			// throw IllegalArgumentException("Missing, unbalanced, or misplaced
-			// parentheses");
+		// Parentheses must be balanced, and if any are present the leading operator must enclose the whole
+		// (sub)query (its balancing ')' is the last character). Zero parens is legal — a bare-term query
+		// (e.g. "dog training") defaults to #combine. Previously this validation was disabled, so
+		// malformed parentheses fell through to substring()/lastIndexOf() and crashed with
+		// StringIndexOutOfBounds. (TASK-0015)
+		int openParens = countChars(queryString, '(');
+		int closeParens = countChars(queryString, ')');
+		if (openParens != closeParens) {
+			syntaxError("unbalanced parentheses (" + openParens + " '(' vs " + closeParens + " ')')");
+		}
+		if (openParens > 0 && indexOfBalencingParen(queryString) != (queryString.length() - 1)) {
+			syntaxError("misplaced parentheses: an operator must enclose its entire (sub)query");
 		}
 
 		// The query language is prefix-oriented, so the query string can
@@ -370,6 +430,12 @@ public class IndriQueryParser {
 		if (substrings.length > 1) {
 			queryString = substrings[1];
 			queryString = queryString.substring(0, queryString.lastIndexOf(")")).trim();
+			// A literal empty operator (e.g. #combine(), #uw2()) is malformed. Note this is NOT the same
+			// as an operator whose operands are all stopwords (#combine(the a)): that has raw text here and
+			// only becomes empty AFTER analysis, which is legal and yields no results, like Indri. (TASK-0015)
+			if (queryString.isEmpty()) {
+				syntaxError("operator " + queryOperator + " has no operands");
+			}
 		}
 
 		// Each pass below handles one argument to the query operator.
@@ -405,6 +471,10 @@ public class IndriQueryParser {
 
 	public Query parseQuery(String queryString) {
 		// TODO: json or indri query
+		if (queryString == null) {
+			return null;
+		}
+		parseDepth = 0;
 		queryString = queryString.replace("'", "");
 		queryString = queryString.replace("\"", "");
 		queryString = queryString.replace("+", " ");
@@ -559,8 +629,8 @@ public class IndriQueryParser {
 	 * @param errorString The string "Syntax
 	 * @throws IllegalArgumentException The query contained a syntax error
 	 */
-	static private void syntaxError(String errorString) throws IllegalArgumentException {
-		throw new IllegalArgumentException("Syntax Error: " + errorString);
+	static private void syntaxError(String errorString) throws QueryParseException {
+		throw new QueryParseException("Syntax Error: " + errorString);
 	}
 
 }

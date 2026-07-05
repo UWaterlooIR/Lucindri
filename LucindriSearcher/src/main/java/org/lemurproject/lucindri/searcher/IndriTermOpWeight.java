@@ -113,7 +113,9 @@ public abstract class IndriTermOpWeight extends IndriWeight {
 				} else if (docIter instanceof PostingsEnum) {
 					iterator = new IndriPostingsEnumWrapper((PostingsEnum) docIter);
 				} else {
-					throw new IllegalArgumentException(
+					// A belief operator (e.g. #or/#combine) used as a proximity operand is a malformed
+					// query; surface it as a QueryParseException like other rejections. (TASK-0015)
+					throw new org.lemurproject.lucindri.searcher.parser.QueryParseException(
 							"Term/proximity operators (#band, #N, #uwN, #syn) require term or proximity "
 									+ "operands with position lists; received a belief operator (e.g. #or/#combine) "
 									+ "with no positions. Use #syn (not #or) for a disjunctive facet inside a "
