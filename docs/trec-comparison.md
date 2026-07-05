@@ -192,6 +192,34 @@ Two findings:
 
 ---
 
+## 7b. Keep-all-tokens run (aligning document length)
+
+The doc-length gap of §7.2 can be neutralized *by configuration*: index both engines with **no
+stopword removal** (Indri: no `<stopper>`; Lucindri: `removeStopwords=false`) so every token counts
+toward `|d|`, and — crucially — **do not stop the queries either**, so query analysis still matches
+the index. The latter was previously impossible (Lucindri hardwired query-side stopword removal);
+it is now a query-param option (`<removeStopwords>false</removeStopwords>`).
+
+Collection length aligned to **0.66 %** (Indri 253,367,449 vs Lucindri 251,697,028; residual is the
+tokenizer splitting numbers), versus the ~154M-vs-253M gap when Lucindri removed stopwords.
+
+Agreement (Indri vs Lucindri), stopword-removed → keep-all-tokens:
+
+| query form | overlap@10 | overlap@100 | overlap@1000 | RBO | top-1 |
+|---|---|---|---|---|---|
+| term-only, stopwords removed | 0.716 | 0.736 | 0.854 | 0.705 | 33/50 |
+| **term-only, keep all tokens** | **0.790** | **0.795** | **0.894** | **0.798** | **40/50** |
+| full topics, keep all tokens | 0.434 | 0.471 | 0.430 | 0.450 | 23/50 |
+
+Aligning document length is a **real, clean gain for term ranking** (overlap@10 0.716 → 0.790, RBO
+0.705 → 0.798, top-1 33 → 40). Full-topic agreement barely moved (0.426 → 0.434): proximity
+backgrounds still dominate there. The remaining term-only gap is now essentially **the tokenizer
+alone** — KStem *is* the Krovetz stemmer, so stemming is not a factor. Reproduce with
+`scripts/compare_trec.sh` after setting `removeStopwords=false` / dropping the stopper (see the
+`_nostop` variants).
+
+---
+
 ## 8. Artifacts & reproducibility
 
 Committed:
