@@ -150,6 +150,9 @@ President.fulltext Obama.title
 If a query has no leading operator (e.g. `dog training`), Lucindri wraps the terms in `#combine`.
 
 ### Lucindri implements these Indri belief operators:
+
+Every query node produces a **belief** — a smoothed probability that the term/concept is present in the document (for a term under Dirichlet smoothing, `(tf + μ·P(w|C)) / (|d| + μ)`, carried as a log-probability). Belief operators combine their children's beliefs into the document score. (See `docs/indri-query-language.md` for the scoring details.)
+
 + #combine (equivalent to #and)
   + Example: #combine(dog training)
 + #weight (weighted combine) and #wand (weighted and) — both apply per-operand weights
@@ -162,7 +165,7 @@ If a query has no leading operator (e.g. `dog training`), Lucindri wraps the ter
 + #wsum (weighted sum)
   + Example: #wsum(0.2 president 0.8 obama)
 + #max
-  + Example: #max(dog train) - returns maximum of b(dog) and b(train)
+  + Example: #max(dog train) - scores each document by the larger of the two terms' beliefs (not their combination)
 + #scoreif (filter require)
   + Example: #scoreif( sheep #combine(dolly cloning) ) - only consider those documents matching the query "sheep" and rank them according to the query #combine(dolly cloning)
 + #scoreifnot (filter reject)
