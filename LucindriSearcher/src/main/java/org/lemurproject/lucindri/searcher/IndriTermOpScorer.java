@@ -15,16 +15,15 @@ import java.io.IOException;
 
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.IndriScorer;
-import org.apache.lucene.search.LeafSimScorer;
 import org.apache.lucene.search.Weight;
 
 public class IndriTermOpScorer extends IndriScorer {
 
 	private final IndriTermOpEnum postingsEnum;
-	private final LeafSimScorer docScorer;
+	private final IndriLengthSource docScorer;
 	private final float boost;
 
-	protected IndriTermOpScorer(Weight weight, IndriTermOpEnum postingsEnum, LeafSimScorer docScorer, float boost) {
+	protected IndriTermOpScorer(Weight weight, IndriTermOpEnum postingsEnum, IndriLengthSource docScorer, float boost) {
 		super(weight, boost);
 		this.docScorer = docScorer;
 		this.postingsEnum = postingsEnum;

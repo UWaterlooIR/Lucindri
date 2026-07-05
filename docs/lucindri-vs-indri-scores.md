@@ -31,6 +31,7 @@ C2 (overlaps): o1:"10 20 10 20"  o2:"20 10 20"  o3:"10 10 20 20"  o4:"10 20"
 | 5 | nesting (`#syn` in windows, `#band`, `#max`/`#or`/`#wsum` of proximity, nested `#weight`, absent-term background) | **match** |
 | 5 | `#weight`/`#wsum` with a single-operand child (e.g. `#combine(#1(...))`) | **bug found + FIXED** (below) |
 | 5 | a filter (`#scoreif`) nested *inside* a belief operator | minor divergence — cataloged (below) |
+| 6 | document length quantization (`|d|` in a 1-byte norm) | **resolved (opt-in)** — `exactDocumentLength` matches Indri to ~5e‑6 (below) |
 
 Phase 2 confirms at the score level what TASK-0008 concluded indirectly: the belief operators combine
 correctly; the earlier TREC divergence was analysis (tokenizer/doc-length), not the operators.
@@ -221,9 +222,66 @@ remaining divergences are:
   top-level). Hard to fix (stock-Lucene `IndriAndScorer`); left cataloged.
 - **Norm quantization** (**TASK-0012**): the pervasive small (~0.02) term-level residual, amplified on
   long documents and rare-proximity backgrounds (max per-doc Δ up to a few, always on outlier long
-  docs). Lucene's lossy 1-byte doc-length norm vs Indri's exact length.
+  docs). Lucene's lossy 1-byte doc-length norm vs Indri's exact length. **RESOLVED (opt-in)** — see
+  Phase 6.
 
 Reproduce: `scripts/trec-comparison/build_integer_corpus.sh`, `fuzz_queries.py`, `diff_fuzz.py`.
+
+## Phase 6 — exact document length (TASK-0012)
+
+Dirichlet divides by `|d| + μ`. By default Lucindri stores `|d|` in Lucene's lossy 1-byte norm
+(SmallFloat), so a 716-token doc is scored as ~664 tokens — the dominant remaining term-level residual
+above. Building the index with **`exactDocumentLength=true`** makes the indexer also write each text
+field's exact token count (`numTerms`, no `+1` = Indri's `|d|`) to a per-doc `<field>_len` NumericDocValues;
+the scorer auto-detects it and scores with the exact length, bypassing SmallFloat. No query-side setting.
+
+Measured on the **full-LATimes integer collection** (131,896 docs; Phase-0 aligned), query `#combine(525)`
+over all **15,376** matching docs, μ=2000:
+
+| comparison | max \|Δ\| | mean \|Δ\| |
+|---|---|---|
+| C++ Indri vs Lucindri **exact** (`exactDocumentLength=true`) | **5×10⁻⁶** | 2.5×10⁻⁶ |
+| C++ Indri vs Lucindri **norm** (default) | 0.067 | 8.4×10⁻³ |
+
+Per-doc, on the longest docs (Δnorm grows with `|d|`, Δexact stays 0):
+
+```
+docno       |d|      Indri     Lu-exact    Lu-norm     Δexact    Δnorm
+d4655      24124   -9.76270    -9.76270   -9.70064   +0.00000  -0.06206
+d130305    13311   -9.22842    -9.22842   -9.16095   +0.00000  -0.06747
+d79992      7502   -8.24150    -8.24150   -8.20833   +0.00000  -0.03317
+```
+
+Cost: **~2 bytes/doc (~0.09 %)** after Lucene DocValues compression (268 KB over the 311 MB index).
+No-regression: with the flag **off**, the new-jar index is **byte-identical** (max |Δ| = 0.0) to the
+pre-change Lucindri index. Reproduce: build two Lucindri indexes from
+`/ssd-8TB/trec-compare/fuzzfull/isrc/integers.trec` (`exactDocumentLength` on/off), score `#combine(525)`
+against them and the Indri index at `fuzzfull/i`, and join on docno.
+
+**Full multi-operator fuzz (the TASK-0011 differential, re-run on the exact-length index).** 1,500 fuzzed
+queries exercising every belief/proximity/filter operator and their nestings (seed 7), vs the Indri oracle,
+per-query max-Δ distribution:
+
+| band (per-query max Δ) | NORM (default) | EXACT (`exactDocumentLength=true`) |
+|---|---|---|
+| median max Δ | 0.0589 | **0.0000** |
+| ≤ 0.05 (noise) | 322 | **1158** |
+| 0.05–0.3 (**norm-quantization residual**) | **939** | **103** |
+| > 0.3 (structural) | 132 | 132 (unchanged) |
+
+Exact length **eliminates the quantization residual across all operator interactions**, not just single
+terms: median max-Δ 0.059 → 0.000; the 0.05–0.3 band collapses 939 → 103. Crucially, **every remaining
+divergence is length-independent** (its Δ is ~identical with the flag on or off), so exact length correctly
+does not touch it. Confirmed by construction:
+- Of queries with **no** nested filter, **884/887 (99.7 %)** now match Indri to ≤ 0.05 (median exactly 0).
+- All 103 remaining 0.05–0.3 queries — and the 132 `>0.3` — contain a nested **filter-in-belief**
+  (`#scoreif`/`#scoreifnot`): the cataloged Phase-5 `WeightedAndNode` renormalization, a different root
+  cause (§5), not quantization.
+- The only 3 non-filter queries above 0.05 are all **nested `#band`** (e.g. `#band( 355 #band( 620 395 ) )`),
+  with exactΔ ≈ normΔ (0.68/1.10) — a separate pre-existing structural difference, also not length-related.
+
+Reproduce: `fuzz_queries.py 7 1500 800 qi.frag ql.frag`, wrap and run against `fuzzfull/i` +
+`el0012/{lexact,lnorm}`, then `diff_fuzz.py fi.run fl_{exact,norm}.run`.
 
 ## Reproduce
 

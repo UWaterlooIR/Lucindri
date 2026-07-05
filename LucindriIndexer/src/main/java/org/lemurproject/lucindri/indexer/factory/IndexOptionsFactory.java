@@ -59,6 +59,8 @@ public class IndexOptionsFactory {
 		options.setStemmer(properties.getProperty("stemmer"));
 		options.setRemoveStopwords(Boolean.valueOf(properties.getProperty("removeStopwords")));
 		options.setIgnoreCase(Boolean.valueOf(properties.getProperty("ignoreCase")));
+		// Absent property => Boolean.valueOf(null) == false => norm path (today's behavior). TASK-0012.
+		options.setExactDocumentLength(Boolean.valueOf(properties.getProperty("exactDocumentLength")));
 		options.setHost(properties.getProperty("host"));
 		options.setPort(properties.getProperty("port"));
 		return options;

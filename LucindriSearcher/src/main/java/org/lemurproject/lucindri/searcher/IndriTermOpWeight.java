@@ -26,7 +26,6 @@ import org.apache.lucene.search.BulkScorer;
 import org.apache.lucene.search.CollectionStatistics;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.LeafSimScorer;
 import org.apache.lucene.search.ScoreMode;
 import org.apache.lucene.search.Scorer;
 import org.apache.lucene.search.TermStatistics;
@@ -80,7 +79,8 @@ public abstract class IndriTermOpWeight extends IndriWeight {
 		if (similarity instanceof org.lemurproject.lucindri.searcher.similarities.IndriSimilarity) {
 			Similarity.SimScorer bg = ((org.lemurproject.lucindri.searcher.similarities.IndriSimilarity) similarity)
 					.backgroundSimScorer(boost, collectionStats);
-			LeafSimScorer leaf = new LeafSimScorer(bg, context.reader(), field, true);
+			// Background divides by |d|, so use the exact length too when available (TASK-0012).
+			IndriLengthSource leaf = IndriLengthSource.create(context, field, bg, true);
 			return new IndriMissingTermScorer(this, leaf, boost);
 		}
 		return null;
@@ -181,7 +181,8 @@ public abstract class IndriTermOpWeight extends IndriWeight {
 		// Score with the COLLECTION-WIDE cf (not this leaf's local count) so an absent term-op smooths
 		// with the same background Indri uses; positions/matches still come from this leaf's list.
 		this.simScorer = similarity.scorer(boost, collectionStats, collectionTermStats);
-		LeafSimScorer leafScorer = new LeafSimScorer(simScorer, context.reader(), field, true);
+		// Auto-detect exact vs norm document length for this field/leaf (TASK-0012).
+		IndriLengthSource leafScorer = IndriLengthSource.create(context, field, this.simScorer, true);
 		return new IndriTermOpScorer(this, postingsEnum, leafScorer, boost);
 	}
 

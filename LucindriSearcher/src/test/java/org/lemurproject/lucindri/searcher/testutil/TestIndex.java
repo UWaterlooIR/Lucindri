@@ -7,9 +7,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.tokenattributes.PositionIncrementAttribute;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
+import org.apache.lucene.document.NumericDocValuesField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.IndexReader;
@@ -144,12 +147,24 @@ public final class TestIndex implements Closeable {
 	public static final class Builder {
 		private Analyzer analyzer = indriAnalyzer();
 		private Similarity querySimilarity = new IndriDirichletSimilarity();
+		private boolean exactDocumentLength = false;
 		private final List<List<String[]>> parts = new ArrayList<>();
 		private List<String[]> current = new ArrayList<>();
 
 		/** Index-time analyzer (default {@link TestIndex#indriAnalyzer()}). */
 		public Builder analyzer(Analyzer analyzer) {
 			this.analyzer = analyzer;
+			return this;
+		}
+
+		/**
+		 * When true, also write each text field's exact token count as a {@code <field>_len}
+		 * NumericDocValues, mirroring {@code LuceneDocumentWriter} with {@code exactDocumentLength=true}
+		 * (TASK-0012). The norm is still written (index-time similarity is unchanged), so the exact and norm
+		 * paths differ only by which length the scorer reads.
+		 */
+		public Builder exactDocumentLength(boolean exactDocumentLength) {
+			this.exactDocumentLength = exactDocumentLength;
 			return this;
 		}
 
@@ -197,6 +212,11 @@ public final class TestIndex implements Closeable {
 						Document d = new Document();
 						d.add(new Field(EXTERNAL_ID, doc[0], fieldType));
 						d.add(new Field(FULLTEXT, doc[1], fieldType));
+						if (exactDocumentLength) {
+							// Mirror LuceneDocumentWriter: count posIncr>0 tokens (= numTerms, no +1).
+							d.add(new NumericDocValuesField(EXTERNAL_ID + "_len", tokenCount(analyzer, EXTERNAL_ID, doc[0])));
+							d.add(new NumericDocValuesField(FULLTEXT + "_len", tokenCount(analyzer, FULLTEXT, doc[1])));
+						}
 						writer.addDocument(d);
 					}
 				}
@@ -216,6 +236,26 @@ public final class TestIndex implements Closeable {
 			IndriIndexSearcher searcher = new IndriIndexSearcher(reader);
 			searcher.setSimilarity(querySimilarity);
 			return new TestIndex(reader, searcher, dirs);
+		}
+
+		/**
+		 * Counts the tokens the analyzer emits with position increment &gt; 0 — the same document length
+		 * {@code LuceneDocumentWriter.countTokens} computes and Lucene encodes in the norm
+		 * ({@code numTerms}, no {@code +1}). Kept in sync with the indexer (this module cannot depend on it).
+		 */
+		private static long tokenCount(Analyzer analyzer, String field, String content) throws IOException {
+			long count = 0;
+			try (TokenStream ts = analyzer.tokenStream(field, content)) {
+				PositionIncrementAttribute posIncr = ts.addAttribute(PositionIncrementAttribute.class);
+				ts.reset();
+				while (ts.incrementToken()) {
+					if (posIncr.getPositionIncrement() > 0) {
+						count++;
+					}
+				}
+				ts.end();
+			}
+			return count;
 		}
 
 		private static FieldType fieldType() {

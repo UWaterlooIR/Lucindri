@@ -4,7 +4,6 @@ import java.io.IOException;
 
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.IndriScorer;
-import org.apache.lucene.search.LeafSimScorer;
 import org.apache.lucene.search.Weight;
 
 /**
@@ -16,11 +15,11 @@ import org.apache.lucene.search.Weight;
  */
 public class IndriMissingTermScorer extends IndriScorer {
 
-	private final LeafSimScorer docScorer;
+	private final IndriLengthSource docScorer;
 	private final float boost;
 	private final DocIdSetIterator iterator = DocIdSetIterator.empty();
 
-	public IndriMissingTermScorer(Weight weight, LeafSimScorer docScorer, float boost) {
+	public IndriMissingTermScorer(Weight weight, IndriLengthSource docScorer, float boost) {
 		super(weight, boost);
 		this.docScorer = docScorer;
 		this.boost = boost;
