@@ -15,11 +15,15 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.tokenattributes.PositionIncrementAttribute;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
@@ -40,10 +44,19 @@ public class LuceneDocumentWriter implements DocumentWriter {
 
 	private static final Logger logger = Logger.getLogger(LuceneDocumentWriter.class.getName());
 
+	/**
+	 * Suffix of the per-doc NumericDocValues that holds an indexed text field's exact token count, used
+	 * by {@code exactDocumentLength} indexing (TASK-0012). The searcher reads the same "<field>_len" name
+	 * (kept in sync in {@code IndriLengthSource} in the LucindriSearcher module, which cannot depend on
+	 * this module).
+	 */
+	public static final String EXACT_LENGTH_SUFFIX = "_len";
+
 	private Analyzer analyzer;
 	private IndexWriter iWriter;
 	private FieldType fieldType;
 	private Similarity similarity;
+	private final boolean exactDocumentLength;
 
 	private List<Document> luceneDocs;
 	private Field luceneField;
@@ -54,6 +67,7 @@ public class LuceneDocumentWriter implements DocumentWriter {
 		ConfigurableAnalyzerFactory analyzerFactory = new ConfigurableAnalyzerFactory();
 		analyzer = analyzerFactory.getConfigurableAnalyzer(options);
 		this.similarity = new LMDirichletSimilarity();
+		this.exactDocumentLength = options.isExactDocumentLength();
 
 		String indexDirectory = Paths.get(options.getIndexDirectory(), options.getIndexName()).toString();
 		iWriter = createIndexWriter(indexDirectory, analyzer);
@@ -110,16 +124,31 @@ public class LuceneDocumentWriter implements DocumentWriter {
 		if (parsedDoc != null) {
 			luceneDoc = new Document();
 
+			// When exactDocumentLength is on, accumulate each text field's token count across all of its
+			// values (a field may appear more than once = multi-valued, and the norm aggregates them). Only
+			// ONE NumericDocValues per field per doc is legal, so we add the "<field>_len" values once, after
+			// the field loop. LinkedHashMap keeps output order stable/deterministic. TASK-0012.
+			Map<String, Long> fieldLengths = exactDocumentLength ? new LinkedHashMap<>() : null;
+
 			// Add document to search engine
 			for (ParsedDocumentField docField : parsedDoc.getDocumentFields()) {
 				if (docField.getContent() != null) {
 					if (!docField.isNumeric()) {
 						luceneField = new Field(docField.getFieldName(), docField.getContent(), fieldType);
 						luceneDoc.add(luceneField);
+						if (fieldLengths != null) {
+							long count = countTokens(docField.getFieldName(), docField.getContent());
+							fieldLengths.merge(docField.getFieldName(), count, Long::sum);
+						}
 					} else {
 						luceneDoc.add(new NumericDocValuesField(docField.getFieldName(),
 								Long.valueOf(docField.getContent()).longValue()));
 					}
+				}
+			}
+			if (fieldLengths != null) {
+				for (Map.Entry<String, Long> e : fieldLengths.entrySet()) {
+					luceneDoc.add(new NumericDocValuesField(e.getKey() + EXACT_LENGTH_SUFFIX, e.getValue()));
 				}
 			}
 			// iWriter.addDocument(luceneDoc);
@@ -130,6 +159,30 @@ public class LuceneDocumentWriter implements DocumentWriter {
 			iWriter.addDocuments(luceneDocs);
 			luceneDocs = new ArrayList<>();
 		}
+	}
+
+	/**
+	 * Counts the tokens the index analyzer emits for {@code content} in {@code fieldName}, matching the
+	 * document length Lucene encodes in the norm: the number of emitted tokens whose position increment is
+	 * &gt; 0. This equals {@code FieldInvertState.getLength() - getNumOverlap()} — removed stopwords are
+	 * not emitted (they don't count); synonym/overlap tokens (posIncr 0) don't count either. So in
+	 * SmallFloat's lossless range this equals the norm-decoded length, and for long docs it is the exact,
+	 * un-quantized length. This is {@code numTerms} with <b>no</b> {@code +1} (= Indri's {@code |d|}).
+	 * TASK-0012.
+	 */
+	private long countTokens(String fieldName, String content) throws IOException {
+		long count = 0;
+		try (TokenStream ts = analyzer.tokenStream(fieldName, content)) {
+			PositionIncrementAttribute posIncr = ts.addAttribute(PositionIncrementAttribute.class);
+			ts.reset();
+			while (ts.incrementToken()) {
+				if (posIncr.getPositionIncrement() > 0) {
+					count++;
+				}
+			}
+			ts.end();
+		}
+		return count;
 	}
 
 	public void closeDocumentWriter() throws IOException {

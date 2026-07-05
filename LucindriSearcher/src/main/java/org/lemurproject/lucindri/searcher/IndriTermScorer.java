@@ -19,7 +19,6 @@ import org.apache.lucene.index.SlowImpactsEnum;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.ImpactsDISI;
 import org.apache.lucene.search.IndriScorer;
-import org.apache.lucene.search.LeafSimScorer;
 import org.apache.lucene.search.Weight;
 
 public class IndriTermScorer extends IndriScorer {
@@ -27,11 +26,11 @@ public class IndriTermScorer extends IndriScorer {
 	private final PostingsEnum postingsEnum;
 	private final ImpactsEnum impactsEnum;
 	private final DocIdSetIterator iterator;
-	private final LeafSimScorer docScorer;
+	private final IndriLengthSource docScorer;
 	private final ImpactsDISI impactsDisi;
 	private final float boost;
 
-	public IndriTermScorer(Weight weight, PostingsEnum postingsEnum, LeafSimScorer docScorer, float boost) {
+	public IndriTermScorer(Weight weight, PostingsEnum postingsEnum, IndriLengthSource docScorer, float boost) {
 		super(weight, boost);
 		this.docScorer = docScorer;
 		this.boost = boost;

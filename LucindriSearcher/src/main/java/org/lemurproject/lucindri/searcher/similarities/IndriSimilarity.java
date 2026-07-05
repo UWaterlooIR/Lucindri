@@ -165,8 +165,19 @@ public abstract class IndriSimilarity extends Similarity {
 	}
 
 	/**
-	 * Encodes the document length as the total number of tokens including
-	 * stopwords.
+	 * Encodes the document length as the total number of tokens including stopwords.
+	 *
+	 * <p><b>Note (TASK-0012):</b> this runs only when <em>this</em> Similarity is the <em>index-time</em>
+	 * similarity — i.e. the Solr {@code IndriDirichletSimilarityFactory} path, where Solr computes norms
+	 * with the schema similarity. The standalone Lucindri indexer ({@code LuceneDocumentWriter}) binds
+	 * {@link org.apache.lucene.search.similarities.LMDirichletSimilarity} instead, so in that pipeline this
+	 * method is <em>never invoked</em> and the stored norm is {@code SmallFloat(numTerms)} (via
+	 * {@code SimilarityBase.computeNorm}) with <b>no {@code +1}</b>. Two caveats apply <em>only</em> to the
+	 * Solr path: the {@code +1} below, and the {@code getPosition()}-based length (which counts
+	 * removed-stopword position gaps) — both diverge from Indri's raw {@code |d|}. Do not "fix" either in
+	 * isolation: it changes Solr-hosted index norms and intersects the stopword-length decision (TASK-0009);
+	 * exact per-doc length for the standalone path is handled out of band via the {@code <field>_len}
+	 * NumericDocValues (TASK-0012), not here.
 	 */
 	@Override
 	public final long computeNorm(FieldInvertState state) {
@@ -231,13 +242,27 @@ public abstract class IndriSimilarity extends Similarity {
 	// --------------------------------- Classes ---------------------------------
 
 	/**
+	 * A {@link SimScorer} that can also score with an <em>exact</em> document length supplied directly by
+	 * the caller (bypassing the lossy 1-byte norm decode). Implemented by {@link BasicSimScorer} and
+	 * {@link MultiSimScorer}, and used by the searcher's exact-length source when a {@code <field>_len}
+	 * NumericDocValues is present in the index. TASK-0012.
+	 */
+	public interface ExactLengthSimScorer {
+		/**
+		 * Scores as {@link SimScorer#score(float, long)} does, but with {@code exactLength} used verbatim as
+		 * the document length {@code |d|} — no {@link SmallFloat} decode.
+		 */
+		float scoreWithExactLength(float freq, long exactLength);
+	}
+
+	/**
 	 * Delegates the {@link #score(float, long)} and
 	 * {@link #explain(Explanation, long)} methods to
 	 * {@link SimilarityBase#score(BasicStats, double, double)} and
 	 * {@link SimilarityBase#explain(BasicStats, Explanation, double)},
 	 * respectively.
 	 */
-	final class BasicSimScorer extends SimScorer {
+	final class BasicSimScorer extends SimScorer implements ExactLengthSimScorer {
 		final BasicStats stats;
 
 		BasicSimScorer(BasicStats stats) {
@@ -255,13 +280,18 @@ public abstract class IndriSimilarity extends Similarity {
 		}
 
 		@Override
+		public float scoreWithExactLength(float freq, long exactLength) {
+			return (float) IndriSimilarity.this.score(stats, freq, exactLength);
+		}
+
+		@Override
 		public Explanation explain(Explanation freq, long norm) {
 			return IndriSimilarity.this.explain(stats, freq, getLengthValue(norm));
 		}
 
 	}
 
-	static class MultiSimScorer extends SimScorer {
+	static class MultiSimScorer extends SimScorer implements ExactLengthSimScorer {
 		private final SimScorer subScorers[];
 
 		MultiSimScorer(SimScorer subScorers[]) {
@@ -273,6 +303,15 @@ public abstract class IndriSimilarity extends Similarity {
 			float sum = 0.0f;
 			for (SimScorer subScorer : subScorers) {
 				sum += subScorer.score(freq, norm);
+			}
+			return sum;
+		}
+
+		@Override
+		public float scoreWithExactLength(float freq, long exactLength) {
+			float sum = 0.0f;
+			for (SimScorer subScorer : subScorers) {
+				sum += ((ExactLengthSimScorer) subScorer).scoreWithExactLength(freq, exactLength);
 			}
 			return sum;
 		}

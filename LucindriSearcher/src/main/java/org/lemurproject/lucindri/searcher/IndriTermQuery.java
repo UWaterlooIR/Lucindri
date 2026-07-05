@@ -103,12 +103,14 @@ public class IndriTermQuery extends Query {
 			final TermsEnum termsEnum = getTermsEnum(context);
 			if (termsEnum == null) {
 				// OOV term: no postings in this segment. Contribute the background belief to every doc
-				// via smoothingScore; the empty iterator means it never drives candidate documents.
-				LeafSimScorer bgScorer = new LeafSimScorer(simScorer, context.reader(), term.field(),
+				// via smoothingScore; the empty iterator means it never drives candidate documents. The
+				// background divides by |d|, so it uses the exact length too when available. (TASK-0012)
+				IndriLengthSource bgScorer = IndriLengthSource.create(context, term.field(), simScorer,
 						scoreMode.needsScores());
 				return new IndriMissingTermScorer(this, bgScorer, this.boost);
 			}
-			LeafSimScorer scorer = new LeafSimScorer(simScorer, context.reader(), term.field(),
+			// Auto-detect exact vs norm document length for this field/leaf (TASK-0012).
+			IndriLengthSource scorer = IndriLengthSource.create(context, term.field(), simScorer,
 					scoreMode.needsScores());
 
 			Scorer indriTermScorer = new IndriTermScorer(this, termsEnum.impacts(PostingsEnum.POSITIONS), scorer,
@@ -152,6 +154,9 @@ public class IndriTermQuery extends Query {
 				int newDoc = scorer.iterator().advance(doc);
 				if (newDoc == doc) {
 					float freq = scorer.freq();
+					// Explanation is diagnostic (not on the ranking path); it reports the norm-decoded length
+					// even under exactDocumentLength, so it may differ from score() by the SmallFloat rounding.
+					// (TASK-0012)
 					LeafSimScorer docScorer = new LeafSimScorer(simScorer, context.reader(), term.field(), true);
 					Explanation freqExplanation = Explanation.match(freq, "freq, occurrences of term within document");
 					Explanation scoreExplanation = docScorer.explain(doc, freqExplanation);

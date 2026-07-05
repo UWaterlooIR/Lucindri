@@ -22,6 +22,11 @@ public class IndexingConfiguration extends BaseObject implements Serializable {
 	private boolean removeStopwords;
 	private boolean ignoreCase;
 
+	// When true, additionally store each indexed text field's exact token count in a per-doc
+	// NumericDocValues ("<field>_len") so the searcher can score with the exact document length
+	// instead of Lucene's lossy 1-byte norm. Default false (norm path, bit-for-bit unchanged). TASK-0012.
+	private boolean exactDocumentLength;
+
 	// Defines the type of parser
 	private String documentFormat;
 	
@@ -110,6 +115,14 @@ public class IndexingConfiguration extends BaseObject implements Serializable {
 
 	public void setIndexFields(List<String> indexFields) {
 		this.indexFields = indexFields;
+	}
+
+	public boolean isExactDocumentLength() {
+		return exactDocumentLength;
+	}
+
+	public void setExactDocumentLength(boolean exactDocumentLength) {
+		this.exactDocumentLength = exactDocumentLength;
 	}
 
 	public List<String> getContentTags() {

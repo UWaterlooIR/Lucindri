@@ -45,6 +45,12 @@ stemmer=[kstem | porter | none]
 removeStopwords=[true | false]
 ignoreCase=[true | false]
 
+#scoring options
+# When true, also store each indexed text field's exact token count so the searcher scores with the
+# exact document length |d| (matching C++ Indri) instead of Lucene's lossy 1-byte norm. Costs ~2
+# bytes/doc. Default false (norm; unchanged). Auto-detected at query time — no searcher setting needed.
+exactDocumentLength=[true | false (default)]
+
 #solr options
 host=[host name or IP]
 port=[port number]

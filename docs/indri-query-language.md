@@ -215,7 +215,7 @@ statistically indistinguishable on TREC (t45mCR, topics 401–450: overlap@10 �
 | # | difference | status | where |
 |---|---|---|---|
 | A | **Document length & stopwords** — Indri counts removed-stopword positions in `|d|`; Lucindri counts only indexed tokens. Every score shifts when a doc has stopwords. | **open decision** | **TASK‑0009** |
-| B | **Norm quantization** — Lucindri stores `|d|` in a lossy **1-byte Lucene norm** (SmallFloat); Indri uses the exact length. ~0.02 log divergence on ~700-token docs; invisible on ≤ ~40-token docs. | **open decision** | **TASK‑0012** |
+| B | **Norm quantization** — by default Lucindri stores `|d|` in a lossy **1-byte Lucene norm** (SmallFloat); Indri uses the exact length. ~0.02–0.07 log divergence on long docs; invisible on ≤ ~40-token docs. **Resolved:** the index-time flag `exactDocumentLength=true` stores the exact `|d|` in NumericDocValues and scores with it (matches Indri to ~5e‑6). Default off = norm (unchanged). | **resolved (opt-in)** | **TASK‑0012** |
 | C | **Krovetz stemming** — two independent implementations; agree on **99.95%** of token occurrences. | accepted + guarded | **TASK‑0013** |
 | D | **Filter-in-belief renormalization** — §5. | cataloged | — |
 
@@ -233,16 +233,25 @@ Indri: no `<stopper>`). That aligns collection length to 0.66% and raised term-o
 0.716 → 0.790 — at the cost of stopwords being searchable. True parity (stopwords count toward `|d|`
 but stay non-searchable, as Indri's OOV placeholders do) needs code. **Decision pending in TASK‑0009.**
 
-### B. Norm quantization (baked into Lucene 8.10) (TASK‑0012)
+### B. Norm quantization (baked into Lucene 8.10) — RESOLVED, opt-in (TASK‑0012)
 
-`IndriSimilarity.computeNorm` returns `numTerms + 1` and Lucene stores it as a **single byte** via
-`SmallFloat`; `getLengthValue(norm) = LENGTH_TABLE[…]` decodes that lossy byte. So a 716-token document
-is scored as if it were ~664 tokens (nearest SmallFloat bucket), giving e.g. term `45`:
-Indri −4.85425 vs Lucindri −4.83491 (Δ ≈ 0.019). Toy docs (≤ ~40 tokens) are exact because SmallFloat
-is lossless there — which is why this hid until realistic lengths. Returning the raw stored norm does
-**not** help (it *is* the encoded byte — verified). Exact parity needs the length stored out of band
-(e.g. a per-doc `NumericDocValues`) and read by the scorer, and settling the `+1` (Indri's `|d|` has no
-`+1`). **Decision pending in TASK‑0012.** This is the dominant remaining term-level residual and the
+By default the stored document length is a **single byte**: the standalone indexer builds norms with
+`LMDirichletSimilarity`, whose `SimilarityBase.computeNorm` stores `SmallFloat(numTerms)` (no `+1`); at
+query time `getLengthValue(norm) = LENGTH_TABLE[…]` decodes that lossy byte. So a 716-token document is
+scored as if it were ~664 tokens (nearest SmallFloat bucket) — e.g. term `45`: Indri −4.85425 vs Lucindri
+−4.83491 (Δ ≈ 0.019). Toy docs (≤ ~40 tokens) are exact because SmallFloat is lossless there — which is
+why this hid until realistic lengths. (Note: the query-time `IndriSimilarity.computeNorm` — which returns
+`numTerms + 1` and uses a `getPosition()` length — is **not** what runs here; it is reachable only via the
+Solr `IndriDirichletSimilarityFactory`. See its Javadoc. So today's effective `|d|` already has no `+1`.)
+
+**Resolution (TASK‑0012):** build the index with **`exactDocumentLength=true`** and the indexer also writes
+each text field's exact token count (`numTerms`, no `+1` = Indri's `|d|`) to a per-doc `<field>_len`
+NumericDocValues; the scorer **auto-detects** that DocValues and scores with the exact length, bypassing
+SmallFloat. Measured on the full-LATimes integer collection (131,896 docs), `#combine(525)` over all 15,376
+matching docs: **Lucindri-exact vs C++ Indri max |Δ| = 5×10⁻⁶** (mean 2.5×10⁻⁶), on docs up to 24,124
+tokens — versus max |Δ| = 0.067 for the norm path. Storage cost ≈ **2 bytes/doc (~0.09%)** after Lucene's
+DocValues compression. Default (flag **off**) is unchanged: the new-jar norm index is **byte-identical**
+(max |Δ| = 0.0) to the pre-change index. This was the dominant remaining term-level residual and the
 cap on achievable TREC agreement.
 
 ### C. Krovetz stemming (TASK‑0013)
@@ -291,9 +300,10 @@ retrieval (`#combine[field]`, `#combine[passageN:M]`), numeric/date operators (`
   proximity operand.
 - **Windows count non-overlapping**, and ordered `#N` = unordered `#uwN` in counting rule. Don't expect
   `#2("10 10 20 20")` to count 2.
-- **Expect ~0.02-level score differences from Indri on long documents** (norm quantization, §6B) and
-  occasional stem divergences (§6C). These shift near-ties in rankings; they are not bugs in the
-  operators.
+- **By default, expect ~0.02–0.07-level score differences from Indri on long documents** (norm
+  quantization, §6B) and occasional stem divergences (§6C). These shift near-ties in rankings; they are
+  not bugs in the operators. Index with **`exactDocumentLength=true`** to remove the length quantization
+  (matches Indri to ~5e‑6; §6B).
 - **Scores are negative log-probabilities.** More negative = worse. Lucindri runs `java -jar` without
   `-ea`; assertions are disabled in the searcher's Surefire config on purpose (Indri scores trip
   Lucene's internal `assert score >= 0`).
@@ -302,11 +312,12 @@ retrieval (`#combine[field]`, `#combine[passageN:M]`), numeric/date operators (`
 
 ## 9. Maintenance note
 
-This guide documents system behavior that two open decisions may change:
+This guide documents system behavior that open decisions may change:
 
-- **TASK‑0009** (document length / stopwords) and **TASK‑0012** (exact document length vs norm
-  quantization). If either is implemented, §6A / §6B here must be updated to reflect the new state
-  (those tasks carry a reminder to do so).
+- **TASK‑0009** (document length / stopwords) — still an open decision; if implemented, §6A here must be
+  updated to reflect the new state (that task carries a reminder to do so).
+- **TASK‑0012** (exact document length vs norm quantization) — **done** (opt-in `exactDocumentLength`
+  index flag); §6B reflects the shipped behavior.
 - **TASK‑0014** (`#odN` alias + reject unknown operators) — **done**; §7 reflects the shipped behavior.
 
 When the code moves, update this guide **and** the pinning tests; do not let the two drift.
