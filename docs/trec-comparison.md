@@ -150,7 +150,41 @@ thoroughly:
 
 ---
 
-## 7. Artifacts & reproducibility
+## 7. Tokenizer-free isolation (integer collection) — found a real `#uwN` bug
+
+To separate genuine query-semantics differences from the (accepted) tokenizer noise, we built a
+tiny collection whose vocabulary is **integers** (`100`, `200`, `999`). Integers have no punctuation
+to split and nothing to stem, so both engines tokenize them **identically** — any remaining
+difference is pure query/scoring semantics. Stopwords (`the`, `and`) were interspersed to test
+stopword handling. Reproduce with `scripts/trec-comparison/integer-isolation.sh`.
+
+Two findings:
+
+1. **`#uwN` unordered window was off by one (fixed).** On docs `100 200` (span 2), `100 the 200`
+   and `100 999 200` (span 3), `100 the and 200` (span 4):
+
+   | operator | Indri | Lucindri (before) | Lucindri (after fix) |
+   |---|---|---|---|
+   | `#uw2(100 200)` | span ≤ 2 | span ≤ 3 ✗ | span ≤ 2 ✓ |
+   | `#odN` ordered | correct | correct | correct |
+
+   Lucindri's unordered window admitted span `N+1` instead of `N`. Root cause: `IndriWindowWeight`
+   compared `(end - start)` against the distance, but for single tokens `end == start`, so it used
+   the position *gap* (`p₂−p₁`) instead of the inclusive *span* (`p₂−p₁+1`). Fixed by adding `+ 1`
+   (`IndriWindowWeight.java`), with regression test `ProximityOperatorTest.unorderedWindowWidthIsExactlyN`
+   (fails before, passes after). This matters directly to topics 401–450, which use `#uw8`/`#uw12`.
+   Ordered windows (`#odN`) were already correct.
+
+2. **Stopword position handling is identical; document length is not.** Both engines preserve the
+   position gap for a removed stopword (so `#1(a b)` over `a the b` correctly does *not* match in
+   either — no false phrase hits). But Indri counts removed stopwords in the document length
+   (`|d|`) while Lucindri counts only indexed tokens — e.g. the 5-doc collection has Indri length 14
+   vs Lucindri 11. Since `|d|` is the Dirichlet denominator, scores differ systematically whenever
+   stopwords are present. This is filed as a separate decision: **TASK-0009**.
+
+---
+
+## 8. Artifacts & reproducibility
 
 Committed:
 - `scripts/compare_trec.sh` — builds both indexes, runs a topics file through both engines, computes
@@ -159,6 +193,7 @@ Committed:
   `<stopper>` generator.
 - `scripts/trec-comparison/agreement.py` — the overlap@k / RBO calculator.
 - `scripts/trec-comparison/indri-build.param.tmpl`, `lucindri.properties.tmpl` — index-build configs.
+- `scripts/trec-comparison/integer-isolation.sh` — the tokenizer-free integer probe (§7).
 
 Not committed (large / regenerable): the corpus, the two indexes, and the raw TREC runs live under
 `$WORK` (default outside the repo). The 401–450 topics stay at their external path.

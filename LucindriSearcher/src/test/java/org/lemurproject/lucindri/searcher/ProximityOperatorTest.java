@@ -96,6 +96,25 @@ public class ProximityOperatorTest {
 		}
 	}
 
+	// ---- #uwN window width must be exactly N positions (inclusive span), matching Indri (TASK-0008) ----
+	// Before the fix the unordered window was one position too wide (admitted span N+1). Isolated on
+	// an integer collection vs C++ Indri; reproduced here with stem-invariant words.
+
+	@Test
+	public void unorderedWindowWidthIsExactlyN(@TempDir Path dir) throws Exception {
+		try (TestIndex ix = TestIndex.builder()
+				.add("adj",  "alpha beta")             // span 2
+				.add("rev",  "beta alpha")             // span 2, reversed (unordered)
+				.add("gap1", "alpha gamma beta")       // span 3 (one word between)
+				.add("gap2", "alpha gamma delta beta") // span 4 (two words between)
+				.build(dir)) {
+			// #uwN = terms within an unordered window of N positions, i.e. inclusive span <= N.
+			assertEquals(Set.of("adj", "rev"), set(ix.ids("#uw2(alpha beta)", 10)), "#uw2 = span<=2");
+			assertEquals(Set.of("adj", "rev", "gap1"), set(ix.ids("#uw3(alpha beta)", 10)), "#uw3 = span<=3");
+			assertEquals(Set.of("adj", "rev", "gap1", "gap2"), set(ix.ids("#uw4(alpha beta)", 10)), "#uw4 = span<=4");
+		}
+	}
+
 	// ---- Regression: plain-term operators and standalone term-ops still correct ----
 
 	@Test

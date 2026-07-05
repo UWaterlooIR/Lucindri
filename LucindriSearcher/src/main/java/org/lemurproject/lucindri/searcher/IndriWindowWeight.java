@@ -87,8 +87,12 @@ public class IndriWindowWeight extends IndriTermOpWeight {
 
 					for (current = i + 1; current < sortedTermPositions.size()
 							&& termsFound != iterators.size(); current++) {
-						if ((sortedTerms.get(sortedTermPositions.get(current)).end
-								- sortedTerms.get(sortedTermPositions.get(i)).start) > distance && (distance >= 0)) {
+						// Indri #uwN semantics: all terms must fall within an unordered window of N
+						// positions, i.e. the inclusive span (end - start + 1) must be <= N. The +1
+						// makes end/start inclusive-position bounds; without it the window was one
+						// position too wide (span <= N+1). See docs/trec-comparison.md (TASK-0008).
+						if (((sortedTerms.get(sortedTermPositions.get(current)).end
+								- sortedTerms.get(sortedTermPositions.get(i)).start) + 1) > distance && (distance >= 0)) {
 							break;
 						}
 
