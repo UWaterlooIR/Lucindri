@@ -24,7 +24,7 @@ C2 (overlaps): o1:"10 20 10 20"  o2:"20 10 20"  o3:"10 10 20 20"  o4:"10 20"
 | 2 | `#not(w)` standalone | both return empty (consistent) |
 | 3 | `#1`, `#2` (C1), `#uw3`, `#band` | **match** |
 | 3 | `#uwN` occurrence-finding | **bug found + fixed** (see below) |
-| 3 | `#odN` ordered window, overlapping docs (`#2` on C2) | **DIVERGES** (open — see below) |
+| 3 | `#odN` ordered window over repeated terms | **diverges — Indri under-counts; Lucindri = truth** (below) |
 
 Phase 2 confirms at the score level what TASK-0008 concluded indirectly: `#weight` (and the other
 belief operators) combine correctly; the earlier TREC divergence was analysis (tokenizer/doc-length),
@@ -42,12 +42,27 @@ After the fix, C1 and C2 (incl. overlapping windows) match Indri to ~1e-6. Regre
 `ProximityOperatorTest.unorderedWindowFoundAfterLeadingDuplicate`. (This compounded the width
 off-by-one fixed earlier in TASK-0008.)
 
-### OPEN — `#odN` ordered window over-counts on overlapping documents
-Minimal repro: collection C2, query `#2(10 20)`. Indri scores o1 −0.954913; Lucindri −0.773 (higher
-= more occurrences counted). `#1` matches everywhere; only distance ≥ 2 ordered windows diverge, and
-only when positions overlap (C1's `#2` matched). The ordered-window occurrence counter in
-`IndriNearWeight` (the posting-pointer advancement, lines ~66–103) needs to be reconciled with
-Indri's exact ordered-window counting semantics. Not yet fixed — tracked in TASK-0010 Phase 3.
+### `#odN` ordered window over repeated terms — LUCINDRI IS CORRECT, INDRI UNDER-COUNTS
+Ordered `#odN` (distance ≥ 2) diverges when a term repeats such that a **disjoint** ordered pairing
+exists. Hand-computed against the maximal-non-overlapping-occurrences definition (checked by
+isolating single documents, **not** by trusting either engine):
+
+| document | true `#2(10 20)` occurrences | Indri | Lucindri |
+|---|---|---|---|
+| `10 20` | 1 | 1 | 1 |
+| `10 10 20` (one 20) | 1 | 1 | 1 |
+| `10 10 20 20` (two 20s) | **2** = (10@0→20@2)+(10@1→20@3) | **1** ✗ | **2** ✓ |
+
+**Lucindri matches the truth; Indri under-counts.** Indri's ordered-window iterator pairs each `10`
+with the *nearest* `20` (it enumerates (0,2) and (1,2) — identical for `10 10 20` and `10 10 20 20`,
+never considering the second `20`), then dedups the overlap to 1, missing the disjoint (1,3) pairing.
+Confirmed via `dumpindex e` (enumeration) vs `dumpindex x` (scoring count), which are themselves
+inconsistent in Indri here (enumerates 2 overlapping, scores 1).
+
+**This is an Indri bug, not a Lucindri bug** — do **not** "fix" Lucindri to match it. Open question for
+the owner: for strict Indri-compatibility, do we want to *replicate* Indri's under-count, or keep
+Lucindri's correct behavior? (The case — repeated terms inside an ordered window — is rare in
+practice.) Corrects an earlier mis-characterization that assumed Indri was ground truth.
 
 ## Reproduce
 
