@@ -28,3 +28,17 @@ local.properties
 
 /.metadata/
 /.recommenders/
+
+##########################
+## Reference papers (copyrighted; kept locally in docs/ for reading only — do NOT commit)
+##########################
+docs/*.pdf
+docs/1991.Evaluation-of-an-inference-network-based-retrieval-model.md
+docs/Combining-the-language-model-and-inference-network-approaches-to-retrieval.md
+docs/Indri-at-TREC-2004.md
+docs/Indri-tech-report.md
+docs/Optimization-Strategies-for-Complex-Queries.md
+docs/inference-networks.md
+docs/inquery.md
+docs/metzler-combining.md
+docs/metzler-thesis.md
