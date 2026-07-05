@@ -24,7 +24,7 @@ C2 (overlaps): o1:"10 20 10 20"  o2:"20 10 20"  o3:"10 10 20 20"  o4:"10 20"
 | 2 | `#not(w)` standalone | both return empty (consistent) |
 | 3 | `#1`, `#2` (C1), `#uw3`, `#band` | **match** |
 | 3 | `#uwN` occurrence-finding | **bug found + fixed** (see below) |
-| 3 | `#odN` ordered window over repeated terms | **Lucindri bug — ordered over-counts vs unordered & Indri** (below) |
+| 3 | `#odN` ordered window over repeated terms | **bug found + FIXED** — ordered now = unordered = Indri (below) |
 
 Phase 2 confirms at the score level what TASK-0008 concluded indirectly: `#weight` (and the other
 belief operators) combine correctly; the earlier TREC divergence was analysis (tokenizer/doc-length),
@@ -67,9 +67,13 @@ Lucindri's own unordered window.
 > semantics, which Lucindri's *own* unordered window already follows. The ordered-vs-unordered
 > comparison (suggested by the owner) is what resolved it.
 
-**This is a Lucindri bug (`IndriNearWeight` ordered-window counting).** Fix direction: align its
-occurrence counting with `IndriWindowWeight` (smallest window per start, skip past a matched window)
-so ordered matches unordered and Indri. Tracked in TASK-0010 Phase 3.
+**This was a Lucindri bug (`IndriNearWeight` ordered-window counting) — now FIXED.** The fix counts
+ordered occurrences non-overlapping: a window is only counted if it starts after the previously
+counted window ends (`lastCountedEnd`), matching Indri's downstream overlap removal and Lucindri's
+own unordered window. After the fix, ordered = unordered = Indri on `"10 10 20 20"` (all tf=1), on
+C1/C2, and on the simple cases (`10 20`, `10 30 20`) which were already correct. Locked by
+`ProximityCountTest` — **count-level** tests (single-doc index → `tf = round(L·e^score)`, μ-independent)
+that assert exact occurrence counts and fail on the pre-fix over-count.
 
 ## Reproduce
 

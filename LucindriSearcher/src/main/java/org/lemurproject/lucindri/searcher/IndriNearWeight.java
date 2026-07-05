@@ -62,6 +62,11 @@ public class IndriNearWeight extends IndriTermOpWeight {
 				int[] nextEndPositions = new int[iterators.size()];
 				java.util.Arrays.fill(nextStartPositions, -1);
 				java.util.Arrays.fill(nextEndPositions, -1);
+				// End position of the last window we counted. Ordered-window occurrences are counted
+				// NON-OVERLAPPING (a window is only counted if it starts after the previous one ends),
+				// matching Indri's downstream overlap removal and Lucindri's unordered window. Without
+				// this, repeated terms (e.g. "10 10 20 20" for #2) over-count 2 vs Indri's 1. (TASK-0010)
+				int lastCountedEnd = -1;
 				// Iterator over the first postings in the near
 				for (int i = 0; i < iterator0.freq(); i++) {
 					nextStartPositions[0] = iterator0.nextPosition();
@@ -83,9 +88,14 @@ public class IndriNearWeight extends IndriTermOpWeight {
 							locationMatch = false;
 						}
 					}
-					// Add the match to the inverted list
+					// Add the match to the inverted list, but only if it does not overlap the previously
+					// counted window (non-overlapping occurrence counting).
 					if (locationMatch) {
-						invList.addPosting(currentDocID, nextStartPositions[0], nextEndPositions[iterators.size() - 1]);
+						if (nextStartPositions[0] > lastCountedEnd) {
+							invList.addPosting(currentDocID, nextStartPositions[0],
+									nextEndPositions[iterators.size() - 1]);
+							lastCountedEnd = nextEndPositions[iterators.size() - 1];
+						}
 
 						for (int j = 1; j < iterators.size(); j++) {
 							IndriDocAndPostingsIterator iteratorj = iterators.get(j);
