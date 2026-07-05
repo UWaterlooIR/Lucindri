@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
@@ -62,6 +63,15 @@ public class IndriQueryParser {
 	private final static String SYNONYM = "syn";
 	private final static String NOT = "not";
 	private final static String DEFAULT_FIELD_NAME = "fulltext";
+
+	/**
+	 * The operators Lucindri actually implements and has passing tests for, keyed by their NORMALIZED
+	 * name (surface {@code #N}/{@code #odN} normalize to {@code near}; {@code #uwN} to {@code window}).
+	 * Any operator not in this set is rejected with a clear error rather than silently degrading to
+	 * {@code #and} — see {@link #createOperator}. (TASK-0014)
+	 */
+	private final static Set<String> KNOWN_OPERATORS = Set.of(AND, COMBINE, WEIGHT, WAND, WSUM, OR, NOT,
+			MAX, SYNONYM, BAND, NEAR, WINDOW, SCOREIF, SCOREIFNOT);
 
 	private final Analyzer analyzer;
 	private String defaultField;
@@ -172,9 +182,12 @@ public class IndriQueryParser {
 		operatorNameLowerCase = operatorNameLowerCase.replace("#", "");
 		operatorNameLowerCase = operatorNameLowerCase.replace("~", "");
 
-		// Translate indri syntax for near and unordered window
+		// Translate indri syntax for near and unordered window. #N and Indri's canonical #odN spelling
+		// are the same ordered window (near); #uwN is the unordered window. (TASK-0014 aliases #odN.)
 		if (operatorNameLowerCase.matches("\\d+")) {
 			operatorNameLowerCase = String.join("/", NEAR, operatorNameLowerCase);
+		} else if (operatorNameLowerCase.matches("od\\d+")) {
+			operatorNameLowerCase = String.join("/", NEAR, operatorNameLowerCase.substring(2));
 		} else if (operatorNameLowerCase.startsWith(UNORDER_WINDOW)) {
 			String[] parts = operatorNameLowerCase.split(UNORDER_WINDOW);
 			operatorNameLowerCase = String.join("/", WINDOW, parts[1]);
@@ -190,6 +203,14 @@ public class IndriQueryParser {
 
 			operatorNameLowerCase = substrings[0];
 			operatorDistance = Integer.parseInt(substrings[1]);
+		}
+
+		// Reject any operator Lucindri does not implement, rather than silently degrading it to #and.
+		// A user porting Indri queries must never get the wrong operator run without warning. (TASK-0014)
+		if (!KNOWN_OPERATORS.contains(operatorNameLowerCase)) {
+			syntaxError("Unknown or unsupported operator: #" + operatorNameLowerCase
+					+ ". Lucindri implements: #combine/#and, #weight, #wand, #wsum, #or, #not, #max, "
+					+ "#N (= #odN), #uwN, #syn, #band, #scoreif, #scoreifnot.");
 		}
 		operatorQuery.setOperator(operatorNameLowerCase);
 		operatorQuery.setField(defaultField);
@@ -433,10 +454,18 @@ public class IndriQueryParser {
 				} else if (operatorQuery.getOperator().equalsIgnoreCase(NEAR)) {
 					if (clauses.size() > 1) {
 						query = new IndriNearQuery(clauses, operatorQuery.getField(), operatorQuery.getDistance());
+					} else if (clauses.size() == 1) {
+						// A window of a single operand is just that operand (e.g. #1(the house) once the
+						// stopword "the" is dropped). Matches Indri (#1(x) == x). Return the child directly
+						// rather than a 1-clause window (which scored to null and silently vanished), so an
+						// enclosing weight still propagates. (TASK-0014)
+						query = clauses.get(0).getQuery();
 					}
 				} else if (operatorQuery.getOperator().equalsIgnoreCase(WINDOW)) {
 					if (clauses.size() > 1) {
 						query = new IndriWindowQuery(clauses, operatorQuery.getField(), operatorQuery.getDistance());
+					} else if (clauses.size() == 1) {
+						query = clauses.get(0).getQuery();
 					}
 				} else if (operatorQuery.getOperator().equalsIgnoreCase(BAND)) {
 					query = new IndriBandQuery(clauses, operatorQuery.getField());

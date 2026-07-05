@@ -151,4 +151,54 @@ public class ProximityOperatorTest {
 			assertEquals(Set.of("d1"), set(ix.ids("#1(apple cat)", 10)));
 		}
 	}
+
+	// ---- TASK-0014: #odN is Indri's spelling of the ordered window and must alias #N, NOT degrade ----
+	// Before the fix, #od5 was an unrecognized operator that silently ran as #and/#combine.
+
+	@Test
+	public void odNIsAliasForOrderedWindowNotAnd(@TempDir Path dir) throws Exception {
+		try (TestIndex ix = TestIndex.builder()
+				.add("d0", "cat dog")          // ordered phrase
+				.add("d1", "filler cat dog")   // ordered phrase, not at position 0
+				.add("d2", "dog cat")          // reversed -> not an ordered match, but IS an #and/#combine match
+				.build(dir)) {
+			Set<String> near = set(ix.ids("#1(cat dog)", 10));
+			assertEquals(Set.of("d0", "d1"), near);
+			assertEquals(near, set(ix.ids("#od1(cat dog)", 10)), "#od1 must equal #1 (ordered window)");
+			assertEquals(set(ix.ids("#2(cat dog)", 10)), set(ix.ids("#od2(cat dog)", 10)), "#od2 must equal #2");
+			// The whole point: #odN must NOT behave like #combine, which also matches the reversed d2.
+			assertEquals(Set.of("d0", "d1", "d2"), set(ix.ids("#combine(cat dog)", 10)));
+			assertEquals(true, !set(ix.ids("#od1(cat dog)", 10)).contains("d2"), "#od1 must not match reversed doc");
+		}
+	}
+
+	// ---- TASK-0014: a single-operand window is just the term (Indri: #1(x) == x); it must not vanish ----
+	// e.g. #1(the house) reduces to #1(house) after the stopword is dropped.
+
+	@Test
+	public void singleOperandWindowIsTheTerm(@TempDir Path dir) throws Exception {
+		try (TestIndex ix = TestIndex.builder()
+				.add("d1", "cat dog")
+				.add("d2", "dog sun")
+				.build(dir)) {
+			assertEquals(set(ix.ids("cat", 10)), set(ix.ids("#1(cat)", 10)), "#1(x) must match exactly x");
+			assertEquals(Set.of("d1"), set(ix.ids("#1(cat)", 10)));
+			assertEquals(set(ix.ids("dog", 10)), set(ix.ids("#uw4(dog)", 10)), "#uwN(x) must match exactly x");
+		}
+	}
+
+	// ---- TASK-0014: unknown / unimplemented operators are rejected, never silently run as #and ----
+
+	@Test
+	public void unknownOperatorIsRejectedNotDegradedToAnd(@TempDir Path dir) throws Exception {
+		try (TestIndex ix = TestIndex.builder().add("d1", "cat dog sun").build(dir)) {
+			assertThrows(IllegalArgumentException.class, () -> ix.run("#bogus(cat dog)", 10));
+			assertThrows(IllegalArgumentException.class, () -> ix.run("#bogus(cat)", 10), "single-operand unknown too");
+			assertThrows(IllegalArgumentException.class, () -> ix.run("#combine(cat #bogus(dog))", 10), "nested unknown");
+			// unimplemented Indri operators must error, not degrade to #and
+			assertThrows(IllegalArgumentException.class, () -> ix.run("#wsyn(cat dog)", 10));
+			assertThrows(IllegalArgumentException.class, () -> ix.run("#prior(cat)", 10));
+			assertThrows(IllegalArgumentException.class, () -> ix.run("#od(cat dog)", 10), "#od with no number is invalid");
+		}
+	}
 }

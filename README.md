@@ -174,7 +174,7 @@ And these term (proximity) operators:
 + #N (ordered window)
   + ordered window - terms must appear ordered, with at most N-1 terms between each
   + Example: #2(white house) - matches "white * house" (where * is any word or null)
-  + Use the numeric spelling `#N` (e.g. `#1`, `#2`). The `#odN`, `#nearN`, and `#windowN` spellings are **not** supported (`#nearN`/`#windowN` error; `#odN` silently degrades to `#and`).
+  + `#N` and Indri's canonical `#odN` spelling are the **same** ordered window (`#od5` ≡ `#5`). The `#nearN` and `#windowN` spellings are not supported and error.
 + #uwN (unordered window)
   + unordered window - all terms must appear within window of length N in any order
   + Example: #uw2(white house) - matches "white house" and "house white"
@@ -184,4 +184,4 @@ And these term (proximity) operators:
 **Nesting rule.** The operands of a proximity operator (`#N`, `#uwN`, `#band`, `#syn`) must themselves produce positions — a plain term or another proximity operator. A belief operator (`#combine`, `#or`, ...) is not a valid operand of a proximity operator; to express a disjunctive facet inside a proximity operator use `#syn` (not `#or`).
 
 ### Not (yet) implemented
-These Indri operators/features are not implemented in Lucindri and will either error or be silently ignored: `#wsyn` (weighted synonym), `#prior` (document priors), passage/field/extent retrieval (`#combine[field]`, `#combine[passageN:M]`, subquery field restriction), numeric and date field operators (`#less`, `#greater`, `#between`, `#equals`, `#date:*`), and wildcards (`dog*`). The `#filreq` / `#filrej` filter names are not recognized either — use `#scoreif` / `#scoreifnot` instead.
+These Indri operators/features are not implemented in Lucindri and are **rejected with a clear error** — the parser never silently degrades an unrecognized `#operator` to `#and`: `#wsyn` (weighted synonym), `#prior` (document priors), passage/field/extent retrieval (`#combine[field]`, `#combine[passageN:M]`, subquery field restriction), numeric and date field operators (`#less`, `#greater`, `#between`, `#equals`, `#date:*`), and wildcards (`dog*`). The `#filreq` / `#filrej` filter names are not recognized either — use `#scoreif` / `#scoreifnot` instead.

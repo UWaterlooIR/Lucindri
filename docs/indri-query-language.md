@@ -260,10 +260,10 @@ entries are actually *worse* (`hal→hum`). **Decision: accepted**, not fixed; g
 
 ## 7. Operator support map (Lucindri)
 
-Assumes **TASK‑0014** (which aliases `#odN → #N` and makes the parser **reject** any operator not on
-this allow-list instead of silently degrading it to `#and`). Until TASK‑0014 lands, unrecognized
-operators — notably the `#odN` spelling — silently behave like `#and`; treat that as a bug, not a
-feature.
+The parser aliases `#odN → #N` (so `#od5` ≡ `#5`, the ordered window) and **rejects** any operator not
+on this allow-list with a clear error, rather than silently degrading it to `#and` (TASK‑0014). A
+single-operand window is the term itself (`#1(x) ≡ x`, matching Indri — e.g. `#1(the house)` after the
+stopword is dropped).
 
 **Implemented & test-covered** (the allow-list):
 
@@ -307,7 +307,6 @@ This guide documents system behavior that two open decisions may change:
 - **TASK‑0009** (document length / stopwords) and **TASK‑0012** (exact document length vs norm
   quantization). If either is implemented, §6A / §6B here must be updated to reflect the new state
   (those tasks carry a reminder to do so).
-- **TASK‑0014** (`#odN` alias + reject unknown operators). §7 is written assuming it lands; if its
-  behavior differs, update §7.
+- **TASK‑0014** (`#odN` alias + reject unknown operators) — **done**; §7 reflects the shipped behavior.
 
 When the code moves, update this guide **and** the pinning tests; do not let the two drift.
