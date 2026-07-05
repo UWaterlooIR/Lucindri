@@ -24,7 +24,7 @@ C2 (overlaps): o1:"10 20 10 20"  o2:"20 10 20"  o3:"10 10 20 20"  o4:"10 20"
 | 2 | `#not(w)` standalone | both return empty (consistent) |
 | 3 | `#1`, `#2` (C1), `#uw3`, `#band` | **match** |
 | 3 | `#uwN` occurrence-finding | **bug found + fixed** (see below) |
-| 3 | `#odN` ordered window over repeated terms | **diverges — Indri under-counts; Lucindri = truth** (below) |
+| 3 | `#odN` ordered window over repeated terms | **Lucindri bug — ordered over-counts vs unordered & Indri** (below) |
 
 Phase 2 confirms at the score level what TASK-0008 concluded indirectly: `#weight` (and the other
 belief operators) combine correctly; the earlier TREC divergence was analysis (tokenizer/doc-length),
@@ -42,27 +42,34 @@ After the fix, C1 and C2 (incl. overlapping windows) match Indri to ~1e-6. Regre
 `ProximityOperatorTest.unorderedWindowFoundAfterLeadingDuplicate`. (This compounded the width
 off-by-one fixed earlier in TASK-0008.)
 
-### `#odN` ordered window over repeated terms — LUCINDRI IS CORRECT, INDRI UNDER-COUNTS
-Ordered `#odN` (distance ≥ 2) diverges when a term repeats such that a **disjoint** ordered pairing
-exists. Hand-computed against the maximal-non-overlapping-occurrences definition (checked by
-isolating single documents, **not** by trusting either engine):
+### `#odN` ordered window over repeated terms — LUCINDRI OVER-COUNTS (ordered ≠ unordered)
+The reference here is not an abstract "maximal matching" definition but **internal consistency**:
+Indri's `UnorderedWindowNode.cpp` (lines 50–67, author *tds*) documents the intended rule — *"take
+each term position pair in turn, and find the smallest window that includes it as the first term …
+extents that overlap will get thrown out"* downstream — i.e. **smallest window per start, overlaps
+removed → non-overlapping counts**. The same author wrote `OrderedWindowNode.cpp`, so both window
+types should count the same way. Measured tf on `"10 10 20 20"` (single doc, so tf = 4·e^score):
 
-| document | true `#2(10 20)` occurrences | Indri | Lucindri |
-|---|---|---|---|
-| `10 20` | 1 | 1 | 1 |
-| `10 10 20` (one 20) | 1 | 1 | 1 |
-| `10 10 20 20` (two 20s) | **2** = (10@0→20@2)+(10@1→20@3) | **1** ✗ | **2** ✓ |
+| operator | Indri tf | Lucindri tf |
+|---|---|---|
+| `#2` / `#3` (ordered) | **1** | **2** |
+| `#uw2` / `#uw3` / `#uw4` (unordered) | 1 | 1 |
 
-**Lucindri matches the truth; Indri under-counts.** Indri's ordered-window iterator pairs each `10`
-with the *nearest* `20` (it enumerates (0,2) and (1,2) — identical for `10 10 20` and `10 10 20 20`,
-never considering the second `20`), then dedups the overlap to 1, missing the disjoint (1,3) pairing.
-Confirmed via `dumpindex e` (enumeration) vs `dumpindex x` (scoring count), which are themselves
-inconsistent in Indri here (enumerates 2 overlapping, scores 1).
+**Indri is self-consistent (ordered = unordered = 1). Lucindri is not (unordered 1, ordered 2).**
+Lucindri's *unordered* window already implements the documented overlap-removal (matching Indri);
+its *ordered* window (`IndriNearWeight`) does not — it counts the disjoint pairing (10@0→20@2)+
+(10@1→20@3) = 2. So **Lucindri's ordered window over-counts**; it is the outlier versus both Indri and
+Lucindri's own unordered window.
 
-**This is an Indri bug, not a Lucindri bug** — do **not** "fix" Lucindri to match it. Open question for
-the owner: for strict Indri-compatibility, do we want to *replicate* Indri's under-count, or keep
-Lucindri's correct behavior? (The case — repeated terms inside an ordered window — is rare in
-practice.) Corrects an earlier mis-characterization that assumed Indri was ground truth.
+> **Note on an earlier flip-flop (kept for honesty).** A middle revision claimed the opposite —
+> "Lucindri is right, Indri under-counts" — by judging against a maximal-non-overlapping definition.
+> That was the wrong yardstick: the correct reference is the documented, self-consistent Indri
+> semantics, which Lucindri's *own* unordered window already follows. The ordered-vs-unordered
+> comparison (suggested by the owner) is what resolved it.
+
+**This is a Lucindri bug (`IndriNearWeight` ordered-window counting).** Fix direction: align its
+occurrence counting with `IndriWindowWeight` (smallest window per start, skip past a matched window)
+so ordered matches unordered and Indri. Tracked in TASK-0010 Phase 3.
 
 ## Reproduce
 
