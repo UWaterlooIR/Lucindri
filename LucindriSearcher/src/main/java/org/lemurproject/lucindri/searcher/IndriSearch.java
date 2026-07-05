@@ -40,6 +40,7 @@ import org.lemurproject.lucindri.analyzer.EnglishAnalyzerConfigurable;
 import org.lemurproject.lucindri.searcher.domain.JsonIndriQuery;
 import org.lemurproject.lucindri.searcher.domain.JsonIndriQueryWrapper;
 import org.lemurproject.lucindri.searcher.parser.IndriQueryParser;
+import org.lemurproject.lucindri.searcher.parser.QueryParseException;
 import org.lemurproject.lucindri.searcher.similarities.IndriDirichletSimilarity;
 import org.lemurproject.lucindri.searcher.similarities.IndriJelinekMercerSimilarity;
 import org.w3c.dom.Node;
@@ -121,23 +122,31 @@ public class IndriSearch {
 			IndriQueryParser queryParser = new IndriQueryParser("fulltext", queryWrapper.getStemmer(),
 					queryWrapper.isRemoveStopwords(), queryWrapper.isIgnoreCase());
 			for (JsonIndriQuery query : queryWrapper.getQueries()) {
-				Query test = queryParser.parseQuery(query.getText());
+				try {
+					Query test = queryParser.parseQuery(query.getText());
 
-				if (test != null) {
-					TopDocs hitDocs = searcher.search(test, queryWrapper.getCount());
-					ScoreDoc[] scoreDocs = hitDocs.scoreDocs;
+					if (test != null) {
+						TopDocs hitDocs = searcher.search(test, queryWrapper.getCount());
+						ScoreDoc[] scoreDocs = hitDocs.scoreDocs;
 
-					int rank = 0;
-					for (ScoreDoc scoreDoc : scoreDocs) {
-						rank++;
-						int docid = scoreDoc.doc;
+						int rank = 0;
+						for (ScoreDoc scoreDoc : scoreDocs) {
+							rank++;
+							int docid = scoreDoc.doc;
 
-						Document doc = searcher.doc(docid);
-						String fileName = doc.get(EXTERNALID_FIELD);
+							Document doc = searcher.doc(docid);
+							String fileName = doc.get(EXTERNALID_FIELD);
 
-						System.out.println(String.join(" ", query.getNumber(), "Q0", fileName, String.valueOf(rank),
-								String.valueOf(scoreDoc.score), "lucene"));
+							System.out.println(String.join(" ", query.getNumber(), "Q0", fileName, String.valueOf(rank),
+									String.valueOf(scoreDoc.score), "lucene"));
+						}
 					}
+				} catch (QueryParseException e) {
+					// A malformed query must not abort the whole batch: report it and move on. (TASK-0015)
+					System.err.println("Skipping malformed query " + query.getNumber() + ": " + e.getMessage());
+				} catch (RuntimeException e) {
+					// Defensive: an unexpected internal error on one query must not kill the run either.
+					System.err.println("Internal error on query " + query.getNumber() + ": " + e);
 				}
 			}
 		} else {
