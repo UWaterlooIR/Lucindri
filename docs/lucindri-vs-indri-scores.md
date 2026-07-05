@@ -20,15 +20,48 @@ C2 (overlaps): o1:"10 20 10 20"  o2:"20 10 20"  o3:"10 10 20 20"  o4:"10 20"
 |---|---|---|
 | 0 | collection stats (`|C|`, `cf`, `df`, `|d|`, positions) | **match exactly** |
 | 1 | single term `#combine(w)` / bare term; μ ∈ {0,1,100,2000,10000} | **match** (~1e-6, = analytic) |
-| 2 | `#combine`, `#syn`, `#max`, `#or`, `#wsum`, `#weight` | **match** (~1e-5) |
-| 2 | `#not(w)` standalone | both return empty (consistent) |
+| 2 | `#or`, `#max`, `#wsum` vs **paper Eqs (3),(5),(7)** | **match** (both engines = paper) |
+| 2 | `#combine`, `#weight` vs **Indri `WeightedAndNode`** | **match** (normalized; see below) |
+| 2 | `#syn` (merged-term Dirichlet) | **match** (~1e-4) |
+| 2 | zero-cf (out-of-vocabulary) term in a belief op | **DIVERGES** — Indri floors `P(w|C)=0.5/|C|`; Lucindri drops the term (below) |
 | 3 | `#1`, `#2` (C1), `#uw3`, `#band` | **match** |
 | 3 | `#uwN` occurrence-finding | **bug found + fixed** (see below) |
 | 3 | `#odN` ordered window over repeated terms | **bug found + FIXED** — ordered now = unordered = Indri (below) |
 
-Phase 2 confirms at the score level what TASK-0008 concluded indirectly: `#weight` (and the other
-belief operators) combine correctly; the earlier TREC divergence was analysis (tokenizer/doc-length),
-not the operators.
+Phase 2 confirms at the score level what TASK-0008 concluded indirectly: the belief operators combine
+correctly; the earlier TREC divergence was analysis (tokenizer/doc-length), not the operators.
+
+## Phase 2 — belief operators (formulas & sources)
+
+Truth is the published model, not one engine. Metzler & Croft (2004), *"Combining the language model
+and inference network approaches to retrieval,"* IP&M 40(5):735–750, **p.739 Eqs. (2)–(7)** define the
+belief functions (with `p_i` = child belief, `w_i` = weights):
+
+| operator | belief | source | both engines |
+|---|---|---|---|
+| `#not` | `1 − p₁` | Eq. (2) | — |
+| `#or` | `1 − Πᵢ(1 − pᵢ)` | Eq. (3) | ✓ = paper |
+| `#max` | `max pᵢ` | Eq. (5) | ✓ = paper |
+| `#wsum` | `Σwᵢpᵢ / Σwᵢ` | Eq. (7) | ✓ = paper |
+| `#combine`/`#weight` | `Σwᵢ·sᵢ / Σwᵢ` (log-belief; = normalized geometric mean) | Indri `WeightedAndNode.score` | ✓ = Indri |
+
+**Important nuance:** the paper's `#and` (= `#combine`) is the **product** `Πpᵢ` (Eq. 4), but Indri's
+C++ `WeightedAndNode.score()` computes `Σ(wᵢ·sᵢ)/Σwᵢ` — the **normalized** weighted mean of
+log-beliefs (geometric mean of beliefs), so scores stay comparable across queries of different sizes.
+So Indri deliberately deviates from the literal Eq. (4); Lucindri's `IndriAndScorer`
+(`Σ boostᵢ·sᵢ / Σ boostᵢ`) matches Indri exactly. Verified to ~1e-6 on C1 and, as exact μ-independent
+constants (single-doc `s = log(tf/|d|)`), locked by `BeliefOperatorScoreTest`.
+
+### DIVERGES — out-of-vocabulary (zero collection frequency) term in a belief operator
+For a query term absent from the whole collection (`cf = 0`, so `log P(w|C) = −∞`), Indri floors the
+collection probability: `TermScoreFunctionFactory.cpp:52` sets
+`collectionFrequency = occurrences ? occurrences/|C| : 1/(2·|C|)`, i.e. **`P(w|C) = 0.5/|C|`** — a
+deliberate underflow/`−∞` guard (a component term never zeroes the whole belief). **Lucindri has no
+such floor: it drops the zero-cf term** and scores as if it were absent. Example (single doc
+`"10 10 20"`, `999` absent): Indri `#combine(10 999) = −1.099`, `#or = −0.326`; Lucindri returns
+`−0.405` (= `s₁₀`) for `#combine`/`#or`/`#wsum` alike. Rare in practice (only OOV query terms), but a
+real, code-grounded difference in the log-space regime. Candidate fix: floor `cf` to `0.5` in
+Lucindri's Dirichlet/JM similarity to match Indri. Tracked in TASK-0010.
 
 ## Phase 3 findings
 
