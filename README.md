@@ -4,30 +4,28 @@ Lucindri
 Lucindri is an open-source implementation of Indri search logic and structured query language using the Lucene Search Engine.  Lucindri consists of two components: the indexer and the searcher.
 
 ## Getting Started
-Lucindri requires the 64-bit version of Java 11.  If you don't have it already, download the [Java 11 JDK](https://www.oracle.com/technetwork/java/javase/downloads/jdk11-downloads-5066655.html). Apache [Maven](https://maven.apache.org/download.cgi) is also required.
+Lucindri requires the 64-bit version of Java 11 and Apache [Maven](https://maven.apache.org/download.cgi).
 
-To get started, first clone [trec-car-tools](https://github.com/TREMA-UNH/trec-car-tools-java) from the Trema Lab at UNH.  
+Development and testing (including the post-1.5 updates) were done on **64-bit OpenJDK 11** — specifically OpenJDK 11.0.31 on Ubuntu under WSL2 — with **Maven 3.6.3**. Any 64-bit Java 11 JDK should work.
 
-After cloning the trec-car-tools, build using Maven:
-```
-mvn clean install
-```
-Next, clone this repository and build using *mvn clean install* in this order:
+Clone this repository and build the three modules with *mvn clean install* in this order:
 + LucindriAnalyzer
 + LucindriSearcher
 + LucindriIndexer
+
+> **Note on trec-car-tools.** The *only* thing that depends on [trec-car-tools](https://github.com/TREMA-UNH/trec-car-tools-java) (from the Trema Lab at UNH) is the `car` document-format parser used at index time. That dependency is declared in `LucindriIndexer/pom.xml` and now resolves automatically from [jitpack.io](https://jitpack.io) during the build — you no longer need to clone or `mvn install` it by hand. Nothing else in the engine — the searcher, the analyzer, or any other document format — uses it, so if you never index the `car` format you never touch it.
 
 
 ## Lucindri Indexer
 The main class in indexer is: org.lemurproject.lucindri.indexer.BuildIndex.  This program takes a single properties file as an argument.  See index.properties in the indexer directory as an example.
 
-As of release 1.1, Lucindri supports indexing in Solr.
+As of release 1.1, Lucindri supports indexing in Solr. **Note:** the Solr indexing path was *not* exercised or tested during the post-1.5 updates — the Lucene indexing path (`indexingPlatform=lucene`) is the one that is actively tested and supported here.
 
 Description of indexing properties:
 ```
 #implementation options
-# documentFormat options = text, wsj, gov2, json, wapo, warc, trectext, cw09, cw12, car, marco
-documentFormat=[text | wsj | gov2 | json | wapo | warc | trectext | cw09 | cw12 | car | marco]
+# documentFormat options = text, wsj, gov2, indrigov2, json, wapo, warc, trectext, cw09, cw12, cw22, car, marco, marcofull, climbmix
+documentFormat=[text | wsj | gov2 | indrigov2 | json | wapo | warc | trectext | cw09 | cw12 | cw22 | car | marco | marcofull | climbmix]
 # indexing platform options = lucene, solr
 indexingPlatform=[lucene|solr]
 
@@ -55,7 +53,7 @@ port=[port number]
 Example index.properties:
 ```
 #implementation options
-# documentFormat options = text, wsj, gov2, json, wapo, warc, trectext, cw09, cw12, car, marco
+# documentFormat options = text, wsj, gov2, indrigov2, json, wapo, warc, trectext, cw09, cw12, cw22, car, marco, marcofull, climbmix
 documentFormat=cw09
 
 #data options
@@ -77,13 +75,13 @@ ignoreCase=true
 
 Running the LucindriIndexer can be done from inside an IDE, invoking the main class (org.lemurproject.lucindri.indexer.BuildIndex), or using the jar file in the *target* directory.  Use at least 2G of heap space (preferably 4G - 8G).
 ```
-java -jar -Xmx4G LucindriIndexer-1.0-jar-with-dependencies.jar index.properties
+java -jar -Xmx4G LucindriIndexer-1.45-jar-with-dependencies.jar index.properties
 ```
 
 ## Lucindri Searcher
 The Lucindri Searcher has Indri Dirichlet and Jelinek-Mercer smoothing rules (a.k.a. Similarity in Lucene) implemented.  The results are printed in TREC format.
 
-The main class in searcher is: org.lemurproject.lucindri.searche.IndriSearch.  It takes an xml parameter file, which contains queries, as an argument.  The query parameters follow the same format as Indri.  
+The main class in searcher is: org.lemurproject.lucindri.searcher.IndriSearch.  It takes an xml parameter file, which contains queries, as an argument.  The query parameters follow the same format as Indri.  
 
 ### Retrieval Parameters
 + **index:** path to an Indri Repository. Specified as <index>/path/to/repository</index> in the parameter file and as -index=/path/to/repository on the command line. This element can be specified multiple times to combine Repositories.
@@ -98,16 +96,21 @@ The main class in searcher is: org.lemurproject.lucindri.searche.IndriSearch.  I
 + jelinek-mercer
 (also 'jm', 'linear') (default collectionLambda=0.4), collectionLambda is also known as just "lambda"
 
-Here is an example rule  in parameter file format:
+**Query-time analysis parameters.** These control how each query's text is tokenized before matching, and are specified once per parameter file:
++ **stemmer:** `<stemmer>kstem</stemmer>` — one of `kstem` (a.k.a. `krovetz`), `porter`, or `none`. Default `kstem`.
++ **removeStopwords:** `<removeStopwords>true</removeStopwords>` — drop English stopwords from queries. Default `true`.
++ **ignoreCase:** `<ignoreCase>true</ignoreCase>` — lowercase query terms. Default `true`.
+
+> **Important:** query-time analysis must match the analysis used to build the index (the same `stemmer` / `removeStopwords` / `ignoreCase`). If they differ, query terms will not match the indexed terms and you will get few or no results.
+
+Here is an example rule in parameter file format:
 ```
-<rule>dirichlet:1000</rule>
+<rule>dirichlet:2000</rule>
 ```
-OR
+This corresponds to Dirichlet smoothing with mu equal to 2000. Jelinek-Mercer smoothing is specified the same way, e.g.:
 ```
 <rule>jm:.3</rule>
 ```
-
-This corresponds to Dirichlet smoothing with mu equal to 2000.
 
 Here is an example query file:
 ```
@@ -129,7 +132,7 @@ Here is an example query file:
 
 Running the LucindriSearcher can be done from inside an IDE, invoking the main class (org.lemurproject.lucindri.searcher.IndriSearch), or using the jar file in the *target* directory.  Use at least 2G of heap space (preferably 4G - 8G).
 ```
-java -jar -Xmx4G LucindriSearcher-1.0-jar-with-dependencies.jar queries.xml
+java -jar -Xmx4G LucindriSearcher-1.5-jar-with-dependencies.jar queries.xml
 ```
 
 ## Lucindri Query Language
@@ -144,17 +147,20 @@ For example:
 President.fulltext Obama.title
 ```
 
+If a query has no leading operator (e.g. `dog training`), Lucindri wraps the terms in `#combine`.
+
 ### Lucindri implements these Indri belief operators:
 + #combine (equivalent to #and)
   + Example: #combine(dog training)
++ #weight (weighted combine) and #wand (weighted and) — both apply per-operand weights
+  + Example: #weight(0.2 president 0.8 obama)
+  + Example: #wand(0.2 president 0.8 obama)
 + #or
   + Example: #or(dog cat)
 + #not
   + Example: #and(president #not(obama))
-+ #wand (weighted and)
-  + Example: #wand(0.2 president 0.8 obama)
 + #wsum (weighted sum)
-  + Example: #wsum(0.2 presdient 0.8 obama)
+  + Example: #wsum(0.2 president 0.8 obama)
 + #max
   + Example: #max(dog train) - returns maximum of b(dog) and b(train)
 + #scoreif (filter require)
@@ -162,14 +168,20 @@ President.fulltext Obama.title
 + #scoreifnot (filter reject)
   + Example: #scoreifnot( parton #combine(dolly cloning) ) - only consider those documents NOT matching the query "parton" and rank them according to the query #combine(dolly cloning)
 
-And these term operators:
+And these term (proximity) operators:
 + #band (boolean and)
   + #band(Q) is scored as #uw(Q) - an unordered window of the length of the document
-+ #N (also known as #nearN and #windowN)
++ #N (ordered window)
   + ordered window - terms must appear ordered, with at most N-1 terms between each
   + Example: #2(white house) - matches "white * house" (where * is any word or null)
+  + Use the numeric spelling `#N` (e.g. `#1`, `#2`). The `#odN`, `#nearN`, and `#windowN` spellings are **not** supported (`#nearN`/`#windowN` error; `#odN` silently degrades to `#and`).
 + #uwN (unordered window)
   + unordered window - all terms must appear within window of length N in any order
   + Example: #uw2(white house) - matches "white house" and "house white"
 + #syn (synonym)
   + Example: #syn( #1(united states) #1(united states of america) )
+
+**Nesting rule.** The operands of a proximity operator (`#N`, `#uwN`, `#band`, `#syn`) must themselves produce positions — a plain term or another proximity operator. A belief operator (`#combine`, `#or`, ...) is not a valid operand of a proximity operator; to express a disjunctive facet inside a proximity operator use `#syn` (not `#or`).
+
+### Not (yet) implemented
+These Indri operators/features are not implemented in Lucindri and will either error or be silently ignored: `#wsyn` (weighted synonym), `#prior` (document priors), passage/field/extent retrieval (`#combine[field]`, `#combine[passageN:M]`, subquery field restriction), numeric and date field operators (`#less`, `#greater`, `#between`, `#equals`, `#date:*`), and wildcards (`dog*`). The `#filreq` / `#filrej` filter names are not recognized either — use `#scoreif` / `#scoreifnot` instead.
