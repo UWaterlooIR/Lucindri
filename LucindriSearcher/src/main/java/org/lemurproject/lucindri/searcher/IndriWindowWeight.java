@@ -106,8 +106,12 @@ public class IndriWindowWeight extends IndriTermOpWeight {
 					if (termsFound == iterators.size()) {
 						invList.addPosting(currentDocID, sortedTerms.get(sortedTermPositions.get(i)).start,
 								sortedTerms.get(sortedTermPositions.get(current - 1)).end);
+						// A window matched starting at i: skip past it (count non-overlapping windows).
+						i = current - 1;
 					}
-					i = current - 1;
+					// else: no window starts at i; fall through to the for-loop's i++ so a window that
+					// begins at a later position (e.g. after a leading duplicate term such as "10 10 20"
+					// for #uw2) is not skipped. See TASK-0010 Phase 3.
 				}
 			}
 			currentDocID = iterator0.nextDoc();

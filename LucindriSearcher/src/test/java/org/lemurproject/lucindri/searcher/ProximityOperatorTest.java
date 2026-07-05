@@ -115,6 +115,22 @@ public class ProximityOperatorTest {
 		}
 	}
 
+	// ---- #uwN occurrence-finding must not skip a valid window after a leading duplicate (TASK-0010) ----
+	// In "alpha alpha beta" the only #uw2 window is alpha@1,beta@2 (starts at position 1). The old
+	// loop did `i = current - 1` unconditionally, skipping position 1 when the window from position 0
+	// failed, so the doc (and its collection-frequency contribution) was dropped.
+
+	@Test
+	public void unorderedWindowFoundAfterLeadingDuplicate(@TempDir Path dir) throws Exception {
+		try (TestIndex ix = TestIndex.builder()
+				.add("dup", "alpha alpha beta")   // valid #uw2 window is alpha@1,beta@2
+				.add("adj", "alpha beta")         // span 2
+				.add("gap", "alpha gamma beta")   // span 3 -> excluded from #uw2
+				.build(dir)) {
+			assertEquals(Set.of("dup", "adj"), set(ix.ids("#uw2(alpha beta)", 10)));
+		}
+	}
+
 	// ---- Regression: plain-term operators and standalone term-ops still correct ----
 
 	@Test
