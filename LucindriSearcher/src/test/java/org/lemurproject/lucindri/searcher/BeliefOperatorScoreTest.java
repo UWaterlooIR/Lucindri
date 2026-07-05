@@ -76,6 +76,21 @@ public class BeliefOperatorScoreTest {
 				score(dir, "ws", "#wsum(0.7 alpha 0.3 beta)"), EPS);
 	}
 
+	// A proximity/window containing an OOV term can never occur (matches nothing), but like Indri it
+	// is a cf=0 term that contributes the floored background to a belief combination — not dropped,
+	// and not a crash (regression: the OOV scorer used to trip the proximity operand check). (TASK-0010 P5)
+	@Test
+	public void proximityWithOovOperandNeverMatchesButFloorsInBelief(@TempDir Path dir) throws Exception {
+		try (TestIndex ix = TestIndex.builder().add("d", "alpha beta").build(dir)) {
+			assertTrue(ix.run("#1( beta zzz )", 10).isEmpty(), "an OOV window must match nothing");
+			// single doc |C|=|d|=2, mu=2000; p(#1|C)=0.5/2; #combine(alpha #1(beta zzz)) = (s_alpha + bg)/2.
+			double sAlpha = Math.log(0.5);
+			double bg = Math.log((2000.0 * (0.5 / 2.0)) / (2.0 + 2000.0));
+			double combined = ix.run("#combine( alpha #1( beta zzz ) )", 10).get(0).score;
+			assertEquals((sAlpha + bg) / 2.0, combined, 1e-3, "OOV window must floor its background, not drop");
+		}
+	}
+
 	// A single-operand belief node #combine(X) ≡ X and must still receive a weight from an enclosing
 	// #weight/#wsum. Regression: the stock IndriAndWeight single-scorer shortcut used to return the
 	// child built with boost 1.0f, dropping the weight, so #weight(0.9 #combine(a) 0.1 #combine(b))

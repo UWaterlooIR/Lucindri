@@ -70,6 +70,14 @@ produces an `IndriMissingTermScorer` — an empty iterator (it never drives cand
 the floored background via `smoothingScore`, so it contributes to a belief combination instead of
 being dropped. Locked by `BeliefOperatorScoreTest.oovTermContributesFlooredBackgroundNotDropped`.
 
+**OOV inside a proximity operator (same rule):** a window/phrase containing an OOV term can never
+occur (`xcount(#1(10 999)) = 0`, verified in Indri), so it matches no document on its own — but it is
+itself a `cf=0` term and contributes the same floored background in a belief combination
+(`#combine(30 #1(10 999))` matches Indri to ~1e-6). `IndriTermOpWeight` returns an
+`IndriMissingTermScorer` for a proximity whose operand is OOV. (This also fixed a crash: the OOV
+operand previously tripped the proximity operand type-check.) Locked by
+`BeliefOperatorScoreTest.proximityWithOovOperandNeverMatchesButFloorsInBelief`.
+
 **Note (does an OOV query term match the `[OOV]` stopword placeholders?):** No. When Indri removes a
 stopword it leaves an `[OOV]` position that counts toward `|d|`/`|C|` but is **not a term in the
 vocabulary** — querying a removed stopword, or any never-seen token, returns `cf = 0` (verified with

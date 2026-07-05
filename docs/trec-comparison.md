@@ -11,6 +11,16 @@ almost entirely attributable to the **index tokenizer difference** (Lucene `Stan
 vs. Indri's `word` tokenizer), which the project decided to *accept and catalog* rather than fix.
 The tokenizer difference is amplified through proximity belief-combination.
 
+> **UPDATE (TASK-0010) — this "bottom line" was wrong.** A later score-level study on integer
+> collections (`lucindri-vs-indri-scores.md`) found the topic divergence was **not** mostly the
+> tokenizer: it was real scoring bugs, chiefly `#weight` **dropping the weight of a single-operand
+> child** (e.g. `0.1 #combine(#uw8(...))` — exactly the topic shape), plus the `#uwN`/`#odN`
+> occurrence-count and OOV bugs. After fixing them, full-topic agreement rose from overlap@10 **0.428
+> → 0.666** (stopword-removed) / **0.434 → 0.684** (keep-all-tokens), top-1 **19 → 31–35 / 50**. The
+> numbers in §3 below are the pre-fix baseline; the tokenizer is now a smaller residual, not the
+> dominant cause. This is why the integer-collection study mattered — the tokenizer-confounded TREC
+> comparison could not isolate these bugs.
+
 ---
 
 ## 1. Setup

@@ -57,6 +57,19 @@ public abstract class IndriTermOpWeight extends IndriWeight {
 		List<IndriDocAndPostingsIterator> iterators = new ArrayList<>();
 		for (Weight w : weights) {
 			Scorer scorer = w.scorer(context);
+			if (scorer instanceof IndriMissingTermScorer) {
+				// An operand is out-of-vocabulary (cf=0, absent from the collection). The proximity can
+				// never occur, so — like Indri — the whole operator becomes a cf=0 term: it matches no
+				// document on its own but contributes the floored background p(w|C)=1/(2|C|) to a belief
+				// combination. (TASK-0010)
+				if (similarity instanceof org.lemurproject.lucindri.searcher.similarities.IndriSimilarity) {
+					Similarity.SimScorer bg = ((org.lemurproject.lucindri.searcher.similarities.IndriSimilarity) similarity)
+							.backgroundSimScorer(boost, collectionStats);
+					LeafSimScorer leaf = new LeafSimScorer(bg, context.reader(), field, true);
+					return new IndriMissingTermScorer(this, leaf, boost);
+				}
+				return null;
+			}
 			if (scorer != null) {
 				DocIdSetIterator docIter = scorer.iterator();
 				IndriDocAndPostingsIterator iterator;
