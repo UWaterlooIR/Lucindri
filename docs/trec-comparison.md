@@ -175,6 +175,14 @@ Two findings:
    (fails before, passes after). This matters directly to topics 401–450, which use `#uw8`/`#uw12`.
    Ordered windows (`#odN`) were already correct.
 
+   **Re-running the 50 topics with the fix barely moved aggregate agreement** (overlap@10
+   0.428 → 0.426). The full-topic divergence is dominated by *score-scale* differences (the tokenizer
+   of §4 and the doc-length gap of §7.2 below), not by which documents a window matches — proximity
+   components carry only ~0.1–0.2 weight, so correcting window membership reshuffles little once the
+   underlying scores already differ. The `#uwN` fix is a correctness win; lifting the agreement
+   numbers requires attacking the scores (tokenizer isolation and/or TASK-0009), for which the
+   term-only 0.72 / 0.85 is the current ceiling.
+
 2. **Stopword position handling is identical; document length is not.** Both engines preserve the
    position gap for a removed stopword (so `#1(a b)` over `a the b` correctly does *not* match in
    either — no false phrase hits). But Indri counts removed stopwords in the document length
