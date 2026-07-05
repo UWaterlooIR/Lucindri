@@ -176,6 +176,38 @@ renormalization only triggers for a zero-result child, i.e. a filter nested *ins
 operator — an unusual construction (filters are normally top-level). Left as a known minor
 difference; a genuinely absent *term* is unaffected (it contributes a background, not zero results).
 
+## TASK-0011 — large-scale fuzzing on a realistic integer collection
+
+Built a realistic integer collection from **20,000 LATimes documents** via Indri's forward index
+(`dumpindex il` → global `term→id` by cf → integer trectext → index in both engines), so tokenizer/
+stemmer/stopwords are neutral but the distribution is real English (80,053 ids, |C|≈10M; `|C|`, `cf`,
+`numDocs`, positions align exactly). Fuzzed **1,500 legal Indri queries** (all operators, random
+nesting, both dialects) and diffed per-document scores. **Three real bugs found and fixed** — none
+visible on the tiny C1/C2 collections:
+
+1. **cf=0 proximity window dropped instead of floored.** A window whose operands both exist but which
+   never co-occurs (e.g. two common terms never adjacent) was dropped; Indri floors it as a `cf=0`
+   term. `#weight(0.6 #combine(45 90) 0.4 #1(45 90))` diverged by ~4.8. Fixed in `IndriTermOpWeight`.
+2. **Crash: proximity operator as a filter condition.** `#scoreifnot(#uw2(…) …)` threw
+   `Cannot call docFreq() when needsStats=false` — a filter condition's operand weights are built in a
+   no-scores context. Fixed: always build `TermStates` with stats.
+3. **`#syn` with an OOV operand returned empty.** The OOV-operand floor (correct for windows) was
+   wrong for synonyms, which union operands and should skip an OOV one. Fixed with an operator hook.
+
+Each is locked by a regression test. After the fixes, **no further structural bug** was found; the
+remaining divergences are:
+
+- **Filter nested inside a belief operator** (98 % of the Δ>1 queries): the Phase-5 cataloged
+  renormalization difference — Indri's `WeightedAndNode` normalizes by `Σ|wᵢ|·(child extent count)`, so
+  a filter that yields 0 extents for a document renormalizes it out, while Lucindri keeps the static
+  weight. Common in fuzzed queries but an unusual construction in practice (filters are normally
+  top-level). Hard to fix (stock-Lucene `IndriAndScorer`); left cataloged.
+- **Norm quantization** (**TASK-0012**): the pervasive small (~0.02) term-level residual, amplified on
+  long documents and rare-proximity backgrounds (max per-doc Δ up to a few, always on outlier long
+  docs). Lucene's lossy 1-byte doc-length norm vs Indri's exact length.
+
+Reproduce: `scripts/trec-comparison/build_integer_corpus.sh`, `fuzz_queries.py`, `diff_fuzz.py`.
+
 ## Reproduce
 
 `scripts/trec-comparison/score_probe.sh` builds C1/C2 in both engines and prints the per-doc
