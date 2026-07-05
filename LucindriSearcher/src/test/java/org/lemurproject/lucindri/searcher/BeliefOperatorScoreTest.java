@@ -76,6 +76,21 @@ public class BeliefOperatorScoreTest {
 				score(dir, "ws", "#wsum(0.7 alpha 0.3 beta)"), EPS);
 	}
 
+	// A window whose operands both exist but which never co-occurs (cf=0) is also a cf=0 term: it
+	// matches nothing on its own but floors its background in a belief combination (TASK-0011). doc
+	// "alpha beta gamma": #1(gamma alpha) never occurs (alpha precedes gamma) though both terms exist.
+	@Test
+	public void neverCooccurringWindowFloorsInBelief(@TempDir Path dir) throws Exception {
+		try (TestIndex ix = TestIndex.builder().add("d", "alpha beta gamma").build(dir)) {
+			assertTrue(ix.run("#1( gamma alpha )", 10).isEmpty(), "a never-occurring window matches nothing");
+			// |C|=|d|=3, mu=2000; p(#1|C)=0.5/3; #combine(alpha #1(gamma alpha)) = (s_alpha + bg)/2.
+			double sAlpha = Math.log(1.0 / 3.0);
+			double bg = Math.log((2000.0 * (0.5 / 3.0)) / (3.0 + 2000.0));
+			double combined = ix.run("#combine( alpha #1( gamma alpha ) )", 10).get(0).score;
+			assertEquals((sAlpha + bg) / 2.0, combined, 1e-3, "cf=0 window must floor, not drop");
+		}
+	}
+
 	// A proximity/window containing an OOV term can never occur (matches nothing), but like Indri it
 	// is a cf=0 term that contributes the floored background to a belief combination — not dropped,
 	// and not a crash (regression: the OOV scorer used to trip the proximity operand check). (TASK-0010 P5)

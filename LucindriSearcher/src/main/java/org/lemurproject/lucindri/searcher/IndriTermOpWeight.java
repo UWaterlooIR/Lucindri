@@ -99,6 +99,15 @@ public abstract class IndriTermOpWeight extends IndriWeight {
 			this.simScorer = similarity.scorer(boost, collectionStats, termStats);
 			LeafSimScorer leafScorer = new LeafSimScorer(simScorer, context.reader(), field, true);
 			scorer = new IndriTermOpScorer(this, postingsEnum, leafScorer, boost);
+		} else if (similarity instanceof org.lemurproject.lucindri.searcher.similarities.IndriSimilarity) {
+			// The window never occurs in the collection (cf=0), even though its operands exist (e.g. two
+			// common terms that are never adjacent). Like Indri, it becomes a cf=0 term: it matches no
+			// document on its own but contributes the floored background p(w|C)=1/(2|C|) to a belief
+			// combination. (TASK-0011) Without this the window is dropped, over-scoring belief combos.
+			Similarity.SimScorer bg = ((org.lemurproject.lucindri.searcher.similarities.IndriSimilarity) similarity)
+					.backgroundSimScorer(boost, collectionStats);
+			LeafSimScorer leaf = new LeafSimScorer(bg, context.reader(), field, true);
+			scorer = new IndriMissingTermScorer(this, leaf, boost);
 		}
 		return scorer;
 	}
