@@ -3,6 +3,21 @@ Lucindri
 
 Lucindri is an open-source implementation of Indri search logic and structured query language using the Lucene Search Engine.  Lucindri consists of two components: the indexer and the searcher.
 
+## Relationship to C++ Indri
+
+Up to the git tag **`indri-parity`** (commit `91d2451`, 2026-07-06), the Lucindri query language is a
+reimplementation of the [C++ Indri 5.21](https://www.lemurproject.org/indri.php) query language,
+matching Indri's semantics and scores to the extent documented in
+[`docs/indri-query-language.md`](docs/indri-query-language.md) (§6 lists the small, deliberate
+divergences) and [`docs/lucindri-vs-indri-scores.md`](docs/lucindri-vs-indri-scores.md).
+
+**From that point on (TASK-0016 onward), Lucindri deliberately extends beyond the Indri query
+language**: string-literal text splices (`"..."`), the `#token(...)` verbatim vocabulary lookup, and
+the removal of field-restriction syntax (`term.field` / `:`) are Lucindri language design, not Indri
+reimplementation. Each extension or divergence is cataloged in the query-language guide's
+compatibility ledger (see `tasks/TASK-0016.md` and `docs/indri-query-language.md`). To see everything
+added beyond the Indri-parity point: `git diff indri-parity..master`.
+
 ## Getting Started
 Lucindri requires the 64-bit version of Java 11 and Apache [Maven](https://maven.apache.org/download.cgi).
 

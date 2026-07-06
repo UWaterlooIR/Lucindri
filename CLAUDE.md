@@ -23,6 +23,18 @@ Main classes:
 The maintained project documentation is the repo-root `README.md`. (A stale
 `docs/ReadMe.md` stub was deleted.)
 
+### Indri-parity milestone (read before changing query-language behavior)
+
+The git tag **`indri-parity`** (= commit `91d2451`, 2026-07-06, the pre-TASK-0016 master) marks the
+last point where the Lucindri query language is a pure reimplementation of C++ Indri 5.21 — matching
+Indri to the extent documented in `docs/indri-query-language.md` §6 and
+`docs/lucindri-vs-indri-scores.md`. **From TASK-0016 onward, Lucindri deliberately extends beyond
+the Indri query language** (string-literal splices, `#token`, field syntax removed). Consequence for
+future work: "match C++ Indri" is the yardstick only for language elements that existed at the
+parity point; newer language elements are Lucindri design decisions, recorded with rationale and a
+compatibility ledger in their task files (TASK-0016 is the template). Diff the language surface
+against the milestone with `git diff indri-parity..master`.
+
 ## Local modifications already made in this clone (not upstream)
 
 - Deleted `docs/ReadMe.md` (obsolete stub with wrong package names).
