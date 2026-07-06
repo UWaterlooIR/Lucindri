@@ -218,9 +218,12 @@ statistically indistinguishable on TREC (t45mCR, topics 401–450: overlap@10 �
 | B | **Norm quantization** — by default Lucindri stores `|d|` in a lossy **1-byte Lucene norm** (SmallFloat); Indri uses the exact length. ~0.02–0.07 log divergence on long docs; invisible on ≤ ~40-token docs. **Resolved:** the index-time flag `exactDocumentLength=true` stores the exact `|d|` in NumericDocValues and scores with it (matches Indri to ~5e‑6). Default off = norm (unchanged). | **resolved (opt-in)** | **TASK‑0012** |
 | C | **Krovetz stemming** — two independent implementations; agree on **99.95%** of token occurrences. | accepted + guarded | **TASK‑0013** |
 | D | **Filter-in-belief renormalization** — §5. | cataloged | — |
+| E | **Nested proximity operators** — a proximity op (`#band`/`#uwN`/`#odN`/`#syn`) used as an *operand* of another proximity op can miscount. Indri exposes **all** candidate windows of the inner op to the parent, deduping overlaps only when the final `tf` is counted; Lucindri emits the already-deduped (non-overlapping) list, so the parent sees fewer windows. Most visible for `#band`-in-`#band` (unlimited windows overlap maximally). Rare in real queries. | cataloged | **TASK‑0018** |
 
-Everything else — collection stats, single-term Dirichlet/JM, all belief operators, all proximity
-operators (counting + backgrounds), synonyms, `#band`, top-level filters, OOV flooring — **matches**.
+Everything else — collection stats, single-term Dirichlet/JM, all belief operators, **flat** proximity
+operators (counting + backgrounds), synonyms, flat `#band`, proximity operators **under belief operators**,
+top-level filters, OOV flooring — **matches**. (The one proximity exception is a proximity op nested
+*inside another proximity op* — §6E.)
 
 ### A. Document length & stopwords (TASK‑0009)
 
@@ -265,6 +268,27 @@ vs `thieve`, `wolves→wolf` vs `wolve`) — plus a lower Indri word-length cap 
 entries are actually *worse* (`hal→hum`). **Decision: accepted**, not fixed; guarded by
 `KrovetzStemmerParityTest`. Full write-up: `docs/krovetz-comparison.md`.
 
+### E. Nested proximity operators (TASK‑0018)
+
+A proximity operator used as an **operand of another proximity operator** can count differently from Indri.
+The two engines dedup overlapping windows at different stages: **Indri** emits a candidate window at *every*
+start position and exposes **all** of them to the parent, throwing out overlaps only when the final `tf` is
+counted; **Lucindri** emits the already-deduped (non-overlapping) list, so a parent proximity op sees fewer
+windows than Indri gives it. For a *top-level* proximity op, or one under a *belief* op, the `tf` is the same
+either way (so `#uwN`/`#odN`/flat `#band` match) — the divergence needs a proximity op inside a proximity op.
+
+Worked example — document `"3 3 1 2 1 3"`, query `#band(1 #band(2 3))`: **Indri = 2, Lucindri = 1**. The inner
+`#band(2 3)` has `tf = 1`, but Indri exposes **three** candidate windows (`[0,3]`, `[1,3]`, `[3,5]`) to the
+outer op, which pairs the two `1`s with two disjoint inner windows → 2 bands. Lucindri exposes only the one
+non-overlapping inner window, so the outer forms 1. (Note this also means nested `#band` is **not** equal to
+flat `#band`: here flat `#band(1 2 3) = 1`.)
+
+**Decision: cataloged, not fixed.** True parity would require reworking every proximity operator to emit all
+candidate windows and move the overlap-dedup to `tf`-counting (touching the TASK‑0010-verified `#uwN`/`#odN`
+counts) — a large, risky change for a construction that appeared only in fuzzing, never in real queries.
+Guidance: **don't nest a proximity operator inside another proximity operator** (§8); flat proximity ops and
+proximity-under-belief match Indri exactly. Reproduce with `scripts/trec-comparison/band_probe.sh`.
+
 ---
 
 ## 7. Operator support map (Lucindri)
@@ -276,8 +300,14 @@ stopword is dropped).
 
 **Implemented & test-covered** (the allow-list):
 
-- Belief: `#combine` (= `#and`), `#weight`, `#wand`, `#wsum`, `#or`, `#not`, `#max`
-- Proximity/term: `#N` (= `#odN`, ordered), `#uwN` (unordered), `#syn`, `#band`
+- Belief: `#combine`, `#weight`, `#wand`, `#wsum`, `#or`, `#not`, `#max`. (`#and` is a **Lucindri-only
+  alias** for `#combine` — Indri has no `#and` operator; and `#weight`/`#wand` are the **same** weighted
+  operator, `#combine` being its equal-weights form. All three compile to Indri's `WeightedAndNode`.)
+- Proximity/term: `#N` (= `#odN`, ordered), `#uwN` (unordered), `#syn`, `#band`. **`#band` is a term/extent
+  operator, not a belief operator** — in Indri it is exactly an unordered window of *unlimited* width
+  (`UnorderedWindowNode` with size −1, i.e. `#uw` over the whole document), scored as a derived term by
+  co-occurrence count. Its operands must produce positions (terms, `#N`/`#uwN`, `#syn`); a belief operator
+  like `#or`/`#combine` is **not** a valid `#band` operand (use `#syn` for a disjunctive facet).
 - Filter: `#scoreif`, `#scoreifnot`
 - Terms & fields: `dog`, `dog.title` (field restriction; `:` is rewritten to `.`). Default field is
   **`fulltext`**. A bare query (`dog training`) is wrapped in `#combine`.
@@ -296,8 +326,20 @@ retrieval (`#combine[field]`, `#combine[passageN:M]`), numeric/date operators (`
   or terms won't match. This is configurable now (it used to be hardcoded).
 - **`#combine` is a soft-AND, not a filter.** To *require* a term, use `#scoreif`. Documents missing a
   term still score (background).
+- **Keep filters at the top level; don't nest `#scoreif`/`#scoreifnot` inside `#weight`/`#combine`.** At
+  the top level both engines agree exactly. Nested inside a belief operator, a document that *fails* the
+  filter is an under-specified case the two engines resolve differently — Indri renormalizes the failed
+  clause out (scoring the doc as if that clause weren't there), Lucindri keeps its static weight — so
+  scores diverge for filter-failing docs. Prefer `#scoreif(C #weight(...))` over
+  `#weight(... #scoreif(C ...) ...)`. See §5.
 - **Use `#syn`, not `#or`, inside proximity operators.** `#or` is a belief op and is not a valid
   proximity operand.
+- **Don't nest a proximity operator inside another proximity operator** (`#band`/`#uwN`/`#odN`/`#syn` as an
+  operand of another one — e.g. `#band(a #band(b c))`, `#od2(#band(x y) z)`). Lucindri and Indri count these
+  differently (§6E): the inner op's overlapping candidate windows are exposed to the parent in Indri but
+  pre-deduplicated in Lucindri. Prefer **flat** proximity ops (`#band(a b c)`, `#uwN(a b c)`), which both
+  engines count identically — but note a flattened query is *not* semantically the same as the nested one.
+  Nesting a proximity op inside a **belief** op (`#combine`/`#weight`/…) is fine and matches Indri.
 - **Windows count non-overlapping**, and ordered `#N` = unordered `#uwN` in counting rule. Don't expect
   `#2("10 10 20 20")` to count 2.
 - **By default, expect ~0.02–0.07-level score differences from Indri on long documents** (norm

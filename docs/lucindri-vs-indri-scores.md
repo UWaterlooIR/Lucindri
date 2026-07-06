@@ -278,10 +278,15 @@ does not touch it. Confirmed by construction:
   (`#scoreif`/`#scoreifnot`): the cataloged Phase-5 `WeightedAndNode` renormalization, a different root
   cause (§5), not quantization.
 - The only 3 non-filter queries above 0.05 are all **nested `#band`** (e.g. `#band( 355 #band( 620 395 ) )`),
-  with exactΔ ≈ normΔ (0.68/1.10) — a separate pre-existing structural difference, also not length-related.
+  with exactΔ ≈ normΔ (0.68/1.10) — a separate structural difference, not length-related. **Cataloged as a
+  known divergence (TASK-0018): a proximity op nested inside another proximity op counts differently because
+  Indri exposes all of the inner op's candidate windows to the parent while Lucindri emits the deduped list.
+  See `docs/indri-query-language.md` §6E.** Investigated and deliberately **not fixed** (true parity needs
+  reworking proximity counting; the construction is fuzz-only). Guidance: don't nest proximity in proximity.
 
 Reproduce: `fuzz_queries.py 7 1500 800 qi.frag ql.frag`, wrap and run against `fuzzfull/i` +
-`el0012/{lexact,lnorm}`, then `diff_fuzz.py fi.run fl_{exact,norm}.run`.
+`el0012/{lexact,lnorm}`, then `diff_fuzz.py fi.run fl_{exact,norm}.run`; isolate `#band` nesting with
+`scripts/trec-comparison/band_probe.sh`.
 
 ## Reproduce
 

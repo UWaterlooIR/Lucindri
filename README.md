@@ -161,15 +161,17 @@ If a query has no leading operator (e.g. `dog training`), Lucindri wraps the ter
 
 Every query node produces a **belief** — a smoothed probability that the term/concept is present in the document (for a term under Dirichlet smoothing, `(tf + μ·P(w|C)) / (|d| + μ)`, carried as a log-probability). Belief operators combine their children's beliefs into the document score. (See `docs/indri-query-language.md` for the scoring details.)
 
-+ #combine (equivalent to #and)
++ #combine — the belief-AND (Indri's canonical operator).
   + Example: #combine(dog training)
+  + Note: `#and` is a **Lucindri-only alias** for `#combine`. Indri itself has no `#and` operator, so prefer `#combine` for portability.
 + #weight (weighted combine) and #wand (weighted and) — both apply per-operand weights
+  + `#weight` and `#wand` are the **same** operator in Indri (both a weighted `#combine`); use either.
   + Example: #weight(0.2 president 0.8 obama)
   + Example: #wand(0.2 president 0.8 obama)
 + #or
   + Example: #or(dog cat)
 + #not
-  + Example: #and(president #not(obama))
+  + Example: #combine(president #not(obama))
 + #wsum (weighted sum)
   + Example: #wsum(0.2 president 0.8 obama)
 + #max
