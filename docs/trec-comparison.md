@@ -228,6 +228,11 @@ alone** — KStem *is* the Krovetz stemmer, so stemming is not a factor. Reprodu
 `scripts/compare_trec.sh` after setting `removeStopwords=false` / dropping the stopper (see the
 `_nostop` variants).
 
+> **Follow-up (exact document length).** Re-running this with full-topic SDM queries and adding
+> `exactDocumentLength` (TASK-0012) shows keep-all-tokens lifts full-topic overlap@10 to **0.980** and, on
+> top of that, exact length reaches **0.996** (top-1 49/50) — the two length fixes stack. Write-up:
+> [`docs/exactlen-stopwords-trec-eval.md`](exactlen-stopwords-trec-eval.md).
+
 ---
 
 ## 8. Artifacts & reproducibility

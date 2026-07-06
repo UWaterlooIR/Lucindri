@@ -1,18 +1,24 @@
 #!/bin/bash
-# Build a FRESH FULL climbmix index in 8 parts, with:
-#   * stopwords KEPT   (removeStopwords=false)  -> stopwords are indexed/searchable and counted in |d| and |C|
-#   * exact doc length (exactDocumentLength=true) -> scorer uses the true |d| (no SmallFloat norm quantization)
-# Together these make Lucindri's |d|/|C| count every token (like C++ Indri with no <stopper>) AND score with
-# the exact length — the closest-to-Indri length configuration (see TASK-0009 §7b + TASK-0012).
+# Build a FRESH FULL climbmix index in 8 parts with stopwords KEPT (removeStopwords=false), so stopwords
+# are indexed/searchable and counted in |d| and |C| (like C++ Indri with no <stopper>; see TASK-0009 §7b).
 #
-# This writes to a NEW index directory; it does NOT touch the existing /ssd-8TB/indexes/climbmix_full.
-# Requires the LucindriIndexer jar built from current master (exactDocumentLength support = TASK-0012).
+# Document length mode (env EXACTLEN):
+#   EXACTLEN=false (DEFAULT) -> norm: Lucene's compact 1-byte length norm. Smaller and a bit faster to build.
+#   EXACTLEN=true            -> also store the exact per-doc length (exactDocumentLength; TASK-0012): scores
+#                               with the true |d| (no SmallFloat quantization), at ~2 B/doc + one extra
+#                               index-time analysis pass. The closest-to-Indri length config.
+# The index dir defaults differ by mode so the two never collide:
+#   norm  -> /ssd-8TB/indexes/climbmix_full_keepstop
+#   exact -> /ssd-8TB/indexes/climbmix_full_keepstop_exactlen
+# Neither touches the existing /ssd-8TB/indexes/climbmix_full. Requires the LucindriIndexer jar from master.
 #
-# Env overrides: CORP, IDXPARENT, STAGE, JAR, PARTS, XMX, FORCE (=1 to overwrite a non-empty IDXPARENT).
+# Env overrides: EXACTLEN, CORP, IDXPARENT, STAGE, JAR, PARTS, XMX, FORCE (=1 to overwrite a non-empty IDXPARENT).
 set -u
+EXACTLEN=${EXACTLEN:-false}
+if [ "$EXACTLEN" = true ]; then _tag=keepstop_exactlen; else _tag=keepstop; fi
 CORP=${CORP:-/ssd-8TB/corpora/climbmix-400b-corpus-jsonl}
-STAGE=${STAGE:-/ssd-8TB/climbmix-staging-keepstop-exactlen}
-IDXPARENT=${IDXPARENT:-/ssd-8TB/indexes/climbmix_full_keepstop_exactlen}
+STAGE=${STAGE:-/ssd-8TB/climbmix-staging-$_tag}
+IDXPARENT=${IDXPARENT:-/ssd-8TB/indexes/climbmix_full_$_tag}
 JAR=${JAR:-/ssd-8TB/git-repos/Lucindri/LucindriIndexer/target/LucindriIndexer-1.45-jar-with-dependencies.jar}
 PARTS=${PARTS:-8}
 XMX=${XMX:-8G}
@@ -29,7 +35,7 @@ mkdir -p "$IDXPARENT" "$LOGDIR" "$STAGE"
 
 mapfile -t SHARDS < <(ls "$CORP"/*.jsonl.gz | sort)
 TOTAL=${#SHARDS[@]}
-echo "$(date '+%T') total shards: $TOTAL   (keepStopwords + exactDocumentLength)"
+echo "$(date '+%T') total shards: $TOTAL   (keepStopwords; exactDocumentLength=$EXACTLEN -> $IDXPARENT)"
 if [ "$TOTAL" -eq 0 ]; then echo "ABORT: no *.jsonl.gz shards under $CORP"; exit 1; fi
 # (No gzip integrity check here — the corpus is trusted. Run scripts/check_shards_gzip.sh separately if needed.)
 
@@ -55,7 +61,7 @@ fieldNames=
 stemmer=kstem
 removeStopwords=false
 ignoreCase=true
-exactDocumentLength=true
+exactDocumentLength=$EXACTLEN
 EOF
   echo "$part: $n shards [$(basename "${SHARDS[$first]}") .. $(basename "${SHARDS[$last]}")]"
 done
