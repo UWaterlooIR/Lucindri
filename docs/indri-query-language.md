@@ -361,5 +361,10 @@ This guide documents system behavior that open decisions may change:
 - **TASK‑0012** (exact document length vs norm quantization) — **done** (opt-in `exactDocumentLength`
   index flag); §6B reflects the shipped behavior.
 - **TASK‑0014** (`#odN` alias + reject unknown operators) — **done**; §7 reflects the shipped behavior.
+- **TASK‑0016** (natural language vs notation: `.`/`:`/quotes) — **design decided 2026-07-06, not yet
+  implemented**: query text will flow through the index analyzer unmodified via `"..."` string-literal
+  splices, `#token(...)` becomes the verbatim-lookup escape hatch, and field syntax (`term.field`, `:`)
+  is removed. When implemented, §7 (operator map) and §8 (guidance) here must be updated — the task
+  file carries the full grammar, compatibility ledger, and test plan.
 
 When the code moves, update this guide **and** the pinning tests; do not let the two drift.
