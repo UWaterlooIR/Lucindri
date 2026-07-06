@@ -276,8 +276,14 @@ stopword is dropped).
 
 **Implemented & test-covered** (the allow-list):
 
-- Belief: `#combine` (= `#and`), `#weight`, `#wand`, `#wsum`, `#or`, `#not`, `#max`
-- Proximity/term: `#N` (= `#odN`, ordered), `#uwN` (unordered), `#syn`, `#band`
+- Belief: `#combine`, `#weight`, `#wand`, `#wsum`, `#or`, `#not`, `#max`. (`#and` is a **Lucindri-only
+  alias** for `#combine` — Indri has no `#and` operator; and `#weight`/`#wand` are the **same** weighted
+  operator, `#combine` being its equal-weights form. All three compile to Indri's `WeightedAndNode`.)
+- Proximity/term: `#N` (= `#odN`, ordered), `#uwN` (unordered), `#syn`, `#band`. **`#band` is a term/extent
+  operator, not a belief operator** — in Indri it is exactly an unordered window of *unlimited* width
+  (`UnorderedWindowNode` with size −1, i.e. `#uw` over the whole document), scored as a derived term by
+  co-occurrence count. Its operands must produce positions (terms, `#N`/`#uwN`, `#syn`); a belief operator
+  like `#or`/`#combine` is **not** a valid `#band` operand (use `#syn` for a disjunctive facet).
 - Filter: `#scoreif`, `#scoreifnot`
 - Terms & fields: `dog`, `dog.title` (field restriction; `:` is rewritten to `.`). Default field is
   **`fulltext`**. A bare query (`dog training`) is wrapped in `#combine`.
