@@ -296,6 +296,12 @@ retrieval (`#combine[field]`, `#combine[passageN:M]`), numeric/date operators (`
   or terms won't match. This is configurable now (it used to be hardcoded).
 - **`#combine` is a soft-AND, not a filter.** To *require* a term, use `#scoreif`. Documents missing a
   term still score (background).
+- **Keep filters at the top level; don't nest `#scoreif`/`#scoreifnot` inside `#weight`/`#combine`.** At
+  the top level both engines agree exactly. Nested inside a belief operator, a document that *fails* the
+  filter is an under-specified case the two engines resolve differently — Indri renormalizes the failed
+  clause out (scoring the doc as if that clause weren't there), Lucindri keeps its static weight — so
+  scores diverge for filter-failing docs. Prefer `#scoreif(C #weight(...))` over
+  `#weight(... #scoreif(C ...) ...)`. See §5.
 - **Use `#syn`, not `#or`, inside proximity operators.** `#or` is a belief op and is not a valid
   proximity operand.
 - **Windows count non-overlapping**, and ordered `#N` = unordered `#uwN` in counting rule. Don't expect
