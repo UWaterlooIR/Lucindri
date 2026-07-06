@@ -363,8 +363,12 @@ This guide documents system behavior that open decisions may change:
 - **TASK‑0014** (`#odN` alias + reject unknown operators) — **done**; §7 reflects the shipped behavior.
 - **TASK‑0016** (natural language vs notation: `.`/`:`/quotes) — **design decided 2026-07-06, not yet
   implemented**: query text will flow through the index analyzer unmodified via `"..."` string-literal
-  splices, `#token(...)` becomes the verbatim-lookup escape hatch, and field syntax (`term.field`, `:`)
-  is removed. When implemented, §7 (operator map) and §8 (guidance) here must be updated — the task
-  file carries the full grammar, compatibility ledger, and test plan.
+  splices, `#token(...)` becomes the verbatim-lookup escape hatch, field syntax (`term.field`, `:`)
+  is removed, and the query-time analysis knobs (`stemmer`/`removeStopwords`/`ignoreCase`) are removed
+  in favor of analyzer config persisted in (and read from) the index itself. When implemented, §7
+  (operator map) and §8 (guidance, incl. the "query analysis must match index analysis" bullet) here
+  must be updated — the task file carries the full grammar, compatibility ledger, and test plan.
+- **TASK‑0019** (`#stop(...)` query-time stopword removal) — future-discussion draft spun out of
+  TASK‑0016; blocked on it.
 
 When the code moves, update this guide **and** the pinning tests; do not let the two drift.
