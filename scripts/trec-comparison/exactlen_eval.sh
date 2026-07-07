@@ -12,7 +12,10 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; REPO="$(cd "$HERE/../.." && pwd)"
 REMOVESTOP="${REMOVESTOP:-true}"
 CORPUS="${CORPUS:-/ssd-8TB/corpora/t45minusCR}"
-TOPICS="${TOPICS:-/ssd-8TB/trec-topics/401-450.metzler.xml}"
+# TASK-0016: per-dialect topics — bare terms for C++ Indri, quote-only ("...") for Lucindri (both parse
+# to the identical query tree). Legacy $TOPICS, if set, is honored for the Indri side only.
+TOPICS_INDRI="${TOPICS_INDRI:-${TOPICS:-$REPO/docs/data/queries-401-450.metzler.indri.xml}}"
+TOPICS_LUCINDRI="${TOPICS_LUCINDRI:-$REPO/docs/data/queries-401-450.metzler.lucindri.xml}"
 QRELS="${QRELS:-/ssd-8TB/qrels/trec8-401-450.rel}"
 INDRI_BIN="${INDRI_BIN:-/ssd-8TB/installs/indri-5.21/bin}"
 TE="${TE:-/mnt/g/smucker/github-repos/trec_eval/trec_eval}"
@@ -28,7 +31,8 @@ else
   IIDX="${IIDX:-/ssd-8TB/trec-compare/indri_nostop}"
 fi
 mkdir -p "$WORK"
-QFRAG="$WORK/queries.frag"; grep "<query>" "$TOPICS" > "$QFRAG"
+QFRAG_I="$WORK/queries.indri.frag";    grep "<query>" "$TOPICS_INDRI"    > "$QFRAG_I"
+QFRAG_L="$WORK/queries.lucindri.frag"; grep "<query>" "$TOPICS_LUCINDRI" > "$QFRAG_L"
 
 # ---- C++ Indri (reference): reuse index if present, else build ----
 if [ ! -d "$IIDX" ]; then
@@ -37,7 +41,7 @@ if [ ! -d "$IIDX" ]; then
       "$HERE/indri-build.param.tmpl" > "$WORK/indri-build.param"
   "$INDRI_BIN/IndriBuildIndex" "$WORK/indri-build.param" </dev/null
 fi
-{ echo "<parameters><index>$IIDX</index><rule>method:dirichlet,mu:$MU</rule><count>$COUNT</count><trecFormat>true</trecFormat>"; cat "$QFRAG"; echo "</parameters>"; } > "$WORK/run_indri.param"
+{ echo "<parameters><index>$IIDX</index><rule>method:dirichlet,mu:$MU</rule><count>$COUNT</count><trecFormat>true</trecFormat>"; cat "$QFRAG_I"; echo "</parameters>"; } > "$WORK/run_indri.param"
 echo ">> running Indri"; "$INDRI_BIN/IndriRunQuery" "$WORK/run_indri.param" </dev/null 2>/dev/null > "$WORK/indri.run"
 
 # ---- Lucindri: build norm + exact (identical except exactDocumentLength) ----
@@ -61,7 +65,7 @@ exactDocumentLength=$exact
 EOF
   java -jar -Xmx"$XMX" "$JAR_IDX" "$WORK/$name.properties" >/dev/null 2>&1
   # Query analysis must match the index: keep stopwords on the query side too when REMOVESTOP=false.
-  { echo "<parameters><index>$d</index><rule>dirichlet:$MU</rule><count>$COUNT</count><trecFormat>true</trecFormat><removeStopwords>$REMOVESTOP</removeStopwords><stemmer>kstem</stemmer>"; cat "$QFRAG"; echo "</parameters>"; } > "$WORK/run_$name.xml"
+  { echo "<parameters><index>$d</index><rule>dirichlet:$MU</rule><count>$COUNT</count><trecFormat>true</trecFormat><removeStopwords>$REMOVESTOP</removeStopwords><stemmer>kstem</stemmer>"; cat "$QFRAG_L"; echo "</parameters>"; } > "$WORK/run_$name.xml"
   echo ">> running Lucindri: $name"; java -jar -Xmx"$XMX" "$JAR_SRCH" "$WORK/run_$name.xml" 2>/dev/null > "$WORK/$name.run"
 }
 build_and_run lucindri_norm  false

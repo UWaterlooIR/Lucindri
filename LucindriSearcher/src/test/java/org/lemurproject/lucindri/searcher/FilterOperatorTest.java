@@ -40,7 +40,7 @@ public class FilterOperatorTest {
 	public void requireKeepsScoredMatchesThatAlsoMatchFilter(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = c1(dir)) {
 			// scored #combine(alpha) matches {d1,d2,d3,d4}; filter gamma matches {d1,d5}; ∩ = {d1}.
-			assertEquals(Set.of("d1"), set(ix.ids("#scoreif( gamma #combine( alpha ) )", 10)));
+			assertEquals(Set.of("d1"), set(ix.ids("#scoreif( \"gamma\" #combine( \"alpha\" ) )", 10)));
 		}
 	}
 
@@ -48,7 +48,7 @@ public class FilterOperatorTest {
 	public void rejectDropsScoredMatchesThatMatchFilter(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = c1(dir)) {
 			// {d1,d2,d3,d4} minus filter-gamma {d1} = {d2,d3,d4}.
-			assertEquals(Set.of("d2", "d3", "d4"), set(ix.ids("#scoreifnot( gamma #combine( alpha ) )", 10)));
+			assertEquals(Set.of("d2", "d3", "d4"), set(ix.ids("#scoreifnot( \"gamma\" #combine( \"alpha\" ) )", 10)));
 		}
 	}
 
@@ -56,9 +56,9 @@ public class FilterOperatorTest {
 	public void compoundAndProximityFiltersWork(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = c1(dir)) {
 			// filter = ordered window #1(alpha beta) -> {d1,d2}; scored #combine(gamma) -> {d1,d5}; ∩ = {d1}.
-			assertEquals(Set.of("d1"), set(ix.ids("#scoreif( #1( alpha beta ) #combine( gamma ) )", 10)));
+			assertEquals(Set.of("d1"), set(ix.ids("#scoreif( #1( \"alpha beta\" ) #combine( \"gamma\" ) )", 10)));
 			// filter zeta -> {d3,d5}; scored #combine(alpha beta) -> {d1,d2,d3,d4}; ∩ = {d3}.
-			assertEquals(Set.of("d3"), set(ix.ids("#scoreif( zeta #combine( alpha beta ) )", 10)));
+			assertEquals(Set.of("d3"), set(ix.ids("#scoreif( \"zeta\" #combine( \"alpha beta\" ) )", 10)));
 		}
 	}
 
@@ -67,7 +67,7 @@ public class FilterOperatorTest {
 		try (TestIndex ix = c1(dir)) {
 			// A filter term absent from the collection matches no document (the OOV floor is for
 			// scoring, not matching), so require yields the empty set.
-			assertEquals(Set.of(), set(ix.ids("#scoreif( zzznotthere #combine( alpha ) )", 10)));
+			assertEquals(Set.of(), set(ix.ids("#scoreif( \"zzznotthere\" #combine( \"alpha\" ) )", 10)));
 		}
 	}
 
@@ -77,9 +77,9 @@ public class FilterOperatorTest {
 	@Test
 	public void proximityConditionInFilterDoesNotThrow(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = c1(dir)) {
-			ix.ids("#scoreifnot( #uw2( alpha beta ) #combine( gamma ) )", 10);
-			ix.ids("#scoreif( #uw4( beta gamma ) #combine( alpha ) )", 10);
-			ix.ids("#scoreif( #1( alpha beta ) #max( gamma alpha ) )", 10);
+			ix.ids("#scoreifnot( #uw2( \"alpha beta\" ) #combine( \"gamma\" ) )", 10);
+			ix.ids("#scoreif( #uw4( \"beta gamma\" ) #combine( \"alpha\" ) )", 10);
+			ix.ids("#scoreif( #1( \"alpha beta\" ) #max( \"gamma alpha\" ) )", 10);
 		}
 	}
 
@@ -87,8 +87,8 @@ public class FilterOperatorTest {
 	public void filterContributesNoScore(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = c1(dir)) {
 			// d1's score under #scoreif(gamma #combine(alpha)) equals its score under #combine(alpha) alone.
-			double filtered = scoreOf(ix, "#scoreif( gamma #combine( alpha ) )", "d1");
-			double scoredOnly = scoreOf(ix, "#combine( alpha )", "d1");
+			double filtered = scoreOf(ix, "#scoreif( \"gamma\" #combine( \"alpha\" ) )", "d1");
+			double scoredOnly = scoreOf(ix, "#combine( \"alpha\" )", "d1");
 			assertEquals(scoredOnly, filtered, 1e-4, "filter must not change the scored subquery's score");
 		}
 	}

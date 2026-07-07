@@ -2,11 +2,23 @@ import random, sys
 seed=int(sys.argv[1]); M=int(sys.argv[2]); Vfreq=int(sys.argv[3]) if len(sys.argv)>3 else 800
 rng=random.Random(seed)
 # integer vocabulary: id 1..80053 exist; bias to frequent (small ids); sprinkle rare + OOV(>80053)
+# Dialect-aware term rendering (TASK-0016). A single term id (e.g. `525`) is rendered three ways, all
+# semantically identical ON AN INTEGER CORPUS (integers survive the tokenizer/stemmer/stopper unchanged,
+# and "525" analyzes to exactly the one token 525 == #token("525")):
+#   indri          -> 525            (bare — C++ Indri needs unquoted terms)
+#   lucindri       -> "525"          (analyzed splice — the quote-only default)
+#   lucindri_token -> #token("525")  (verbatim splice — exercises the #token code path)
+# The RNG draws are the same across dialects (only the formatting differs), so all three render the SAME
+# tree via the setstate trick, and every Lucindri run is score-comparable to the one Indri run.
+DIALECT='indri'
 def term():
     r=rng.random()
-    if r<0.85: return str(rng.randint(1,Vfreq))          # frequent
-    if r<0.97: return str(rng.randint(1,80053))          # any real id
-    return str(rng.randint(80054,90000))                 # OOV (absent)
+    if r<0.85: t=str(rng.randint(1,Vfreq))               # frequent
+    elif r<0.97: t=str(rng.randint(1,80053))             # any real id
+    else: t=str(rng.randint(80054,90000))                # OOV (absent)
+    if DIALECT=='lucindri':       return '"%s"'%t
+    if DIALECT=='lucindri_token': return '#token("%s")'%t
+    return t                                             # indri: bare
 def weights(n): return [round(rng.uniform(0.1,1.0),2) for _ in range(n)]
 # a proximity operand: term / proximity / #syn (never a belief op)
 def prox_operand(d):
@@ -49,10 +61,17 @@ def belief(d, dialect):
         else:                return "#%s( %s %s )"%('scoreif' if req else 'scoreifnot',cond,scored)
     return term()
 out_i=open(sys.argv[4],'w'); out_l=open(sys.argv[5],'w')
+out_t=open(sys.argv[6],'w') if len(sys.argv)>6 else None   # optional: Lucindri #token dialect
 for i in range(1,M+1):
     d=rng.randint(1,4)
-    # ensure same random draws produce the same tree in both dialects: build once, render twice
-    st=rng.getstate(); qi=belief(d,'indri'); rng.setstate(st); ql=belief(d,'lucindri')
+    # ensure the same random draws produce the same tree in every dialect: snapshot the RNG, render,
+    # then rewind to the snapshot before each re-render (only the term formatting differs).
+    st=rng.getstate()
+    DIALECT='indri';    qi=belief(d,'indri')
+    rng.setstate(st); DIALECT='lucindri'; ql=belief(d,'lucindri')
     out_i.write("<query><number>%d</number><text>%s</text></query>\n"%(i,qi))
     out_l.write("<query><number>%d</number><text>%s</text></query>\n"%(i,ql))
+    if out_t is not None:
+        rng.setstate(st); DIALECT='lucindri_token'; qt=belief(d,'lucindri_token')
+        out_t.write("<query><number>%d</number><text>%s</text></query>\n"%(i,qt))
 print("generated",M,"queries")

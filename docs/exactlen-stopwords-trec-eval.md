@@ -8,8 +8,10 @@ norm) — move Lucindri's rankings toward C++ Indri's?
 ## Setup
 
 - **Corpus:** `t45minusCR` (FBIS, FR94, FT91–94, LATimes), `trectext`.
-- **Topics/queries:** TREC-8 topics **401–450** (50 Metzler SDM queries), captured verbatim at
-  [`docs/data/queries-401-450.metzler.xml`](data/queries-401-450.metzler.xml).
+- **Topics/queries:** TREC-8 topics **401–450** (50 Metzler SDM queries). This eval ran the bare
+  (Indri-dialect) form [`queries-401-450.metzler.indri.xml`](data/queries-401-450.metzler.indri.xml)
+  through both engines; the semantically identical quote-only Lucindri form (post-TASK-0016) is
+  [`queries-401-450.metzler.lucindri.xml`](data/queries-401-450.metzler.lucindri.xml).
 - **Qrels:** `trec8-401-450.rel`. **Smoothing:** Dirichlet μ=2000. **Stemmer:** Krovetz/KStem on both.
 - **Engines:** C++ Indri 5.21 (reference) vs Lucindri (this repo, post-1.5).
 - **Design:** two experiments; within each, the Lucindri **norm** and **exact** indexes differ by *only*
@@ -62,5 +64,7 @@ index is a sound call; the big Indri-fidelity gain comes from keeping stopwords,
 ## Artifacts
 
 - Script: `scripts/trec-comparison/exactlen_eval.sh` (env: `REMOVESTOP`, `MU`, `COUNT`, `XMX`, paths).
-- Queries: [`docs/data/queries-401-450.metzler.xml`](data/queries-401-450.metzler.xml).
+- Queries: [`queries-401-450.metzler.indri.xml`](data/queries-401-450.metzler.indri.xml) (bare, used by
+  this eval) and [`queries-401-450.metzler.lucindri.xml`](data/queries-401-450.metzler.lucindri.xml)
+  (quote-only Lucindri form; identical query).
 - Runs + indexes: `/ssd-8TB/trec-compare/exactlen` (A) and `/ssd-8TB/trec-compare/exactlen_keepstop` (B).

@@ -37,7 +37,7 @@ public class DirichletScoringTest {
 			final double expectedD1 = Math.log((2 + mu * p) / (3 + mu));
 			final double expectedD2 = Math.log((1 + mu * p) / (3 + mu));
 
-			List<TestIndex.Hit> hits = ix.run("apple", 10);
+			List<TestIndex.Hit> hits = ix.run("\"apple\"", 10);
 			assertEquals(2, hits.size(), () -> "hits=" + hits);
 			assertEquals("d1", hits.get(0).externalId, "d1 (higher tf) should rank first");
 			assertEquals("d2", hits.get(1).externalId);

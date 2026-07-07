@@ -61,7 +61,7 @@ public class ExactDocumentLengthTest {
 				.add("d1", d1)
 				.add("d2", d2)
 				.build(dir.resolve("exact"))) {
-			List<TestIndex.Hit> hits = ix.run("cat", 10);
+			List<TestIndex.Hit> hits = ix.run("\"cat\"", 10);
 			assertEquals(1, hits.size(), () -> "hits=" + hits);
 			exactScore = hits.get(0).score;
 			assertEquals(expectedExact, exactScore, 1e-4, "exact-length score must use the true |d|=716");
@@ -74,7 +74,7 @@ public class ExactDocumentLengthTest {
 				.add("d1", d1)
 				.add("d2", d2)
 				.build(dir.resolve("norm"))) {
-			List<TestIndex.Hit> hits = ix.run("cat", 10);
+			List<TestIndex.Hit> hits = ix.run("\"cat\"", 10);
 			assertEquals(1, hits.size(), () -> "hits=" + hits);
 			normScore = hits.get(0).score;
 			assertEquals(expectedNorm, normScore, 1e-4, "norm score must use the SmallFloat-rounded length");
@@ -94,7 +94,7 @@ public class ExactDocumentLengthTest {
 				.add("d1", "cat sun moon")
 				.add("d2", "sun moon tree")
 				.build(dir.resolve("exact"))) {
-			exactScore = ix.run("cat", 10).get(0).score;
+			exactScore = ix.run("\"cat\"", 10).get(0).score;
 		}
 		double normScore;
 		try (TestIndex ix = TestIndex.builder()
@@ -103,7 +103,7 @@ public class ExactDocumentLengthTest {
 				.add("d1", "cat sun moon")
 				.add("d2", "sun moon tree")
 				.build(dir.resolve("norm"))) {
-			normScore = ix.run("cat", 10).get(0).score;
+			normScore = ix.run("\"cat\"", 10).get(0).score;
 		}
 		assertEquals(normScore, exactScore, 0.0, "lossless-range scores must be identical exact vs norm");
 	}

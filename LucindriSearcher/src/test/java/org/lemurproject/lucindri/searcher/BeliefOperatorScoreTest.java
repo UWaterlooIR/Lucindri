@@ -48,7 +48,7 @@ public class BeliefOperatorScoreTest {
 
 	@Test
 	public void combineIsNormalizedGeometricMeanNotProduct(@TempDir Path dir) throws Exception {
-		double s = score(dir, "c", "#combine(alpha beta)");
+		double s = score(dir, "c", "#combine( \"alpha beta\" )");
 		assertEquals((SA + SB) / 2.0, s, EPS, "#combine = mean of log-beliefs");
 		// Lock the normalization: it must NOT be the paper Eq.(4) product (Σ s_i).
 		assertTrue(Math.abs(s - (SA + SB)) > 0.1, "must not be the unnormalized product");
@@ -57,23 +57,23 @@ public class BeliefOperatorScoreTest {
 	@Test
 	public void weightIsNormalizedWeightedMean(@TempDir Path dir) throws Exception {
 		assertEquals((0.7 * SA + 0.3 * SB) / (0.7 + 0.3),
-				score(dir, "w", "#weight(0.7 alpha 0.3 beta)"), EPS);
+				score(dir, "w", "#weight( 0.7 \"alpha\" 0.3 \"beta\" )"), EPS);
 	}
 
 	@Test
 	public void orIsOneMinusProductOfComplements(@TempDir Path dir) throws Exception {
-		assertEquals(Math.log(1 - (1 - A) * (1 - B)), score(dir, "o", "#or(alpha beta)"), EPS);
+		assertEquals(Math.log(1 - (1 - A) * (1 - B)), score(dir, "o", "#or( \"alpha beta\" )"), EPS);
 	}
 
 	@Test
 	public void maxIsMaxBelief(@TempDir Path dir) throws Exception {
-		assertEquals(Math.max(SA, SB), score(dir, "m", "#max(alpha beta)"), EPS);
+		assertEquals(Math.max(SA, SB), score(dir, "m", "#max( \"alpha beta\" )"), EPS);
 	}
 
 	@Test
 	public void wsumIsWeightedArithmeticMeanOfBeliefs(@TempDir Path dir) throws Exception {
 		assertEquals(Math.log((0.7 * A + 0.3 * B) / (0.7 + 0.3)),
-				score(dir, "ws", "#wsum(0.7 alpha 0.3 beta)"), EPS);
+				score(dir, "ws", "#wsum( 0.7 \"alpha\" 0.3 \"beta\" )"), EPS);
 	}
 
 	// #syn unions its operands, so an OOV operand is skipped (unlike a window, which goes empty).
@@ -81,12 +81,12 @@ public class BeliefOperatorScoreTest {
 	@Test
 	public void synonymSkipsOovOperand(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = TestIndex.builder().add("d", "alpha beta gamma").build(dir)) {
-			java.util.List<TestIndex.Hit> h = ix.run("#syn( alpha zzz )", 10);
+			java.util.List<TestIndex.Hit> h = ix.run("#syn( \"alpha zzz\" )", 10);
 			assertTrue(!h.isEmpty(), "syn with an OOV operand must union the real operands, not go empty");
 			// merged term = {alpha}: tf=1, cf=1, |C|=|d|=3 -> log(1/3) (mu-independent).
 			assertEquals(Math.log(1.0 / 3.0), h.get(0).score, 1e-3);
 			// all-OOV synonym -> cf=0 -> matches nothing.
-			assertTrue(ix.run("#syn( zzz zzz2 )", 10).isEmpty(), "all-OOV synonym must match nothing");
+			assertTrue(ix.run("#syn( \"zzz zzz2\" )", 10).isEmpty(), "all-OOV synonym must match nothing");
 		}
 	}
 
@@ -96,11 +96,11 @@ public class BeliefOperatorScoreTest {
 	@Test
 	public void neverCooccurringWindowFloorsInBelief(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = TestIndex.builder().add("d", "alpha beta gamma").build(dir)) {
-			assertTrue(ix.run("#1( gamma alpha )", 10).isEmpty(), "a never-occurring window matches nothing");
+			assertTrue(ix.run("#1( \"gamma alpha\" )", 10).isEmpty(), "a never-occurring window matches nothing");
 			// |C|=|d|=3, mu=2000; p(#1|C)=0.5/3; #combine(alpha #1(gamma alpha)) = (s_alpha + bg)/2.
 			double sAlpha = Math.log(1.0 / 3.0);
 			double bg = Math.log((2000.0 * (0.5 / 3.0)) / (3.0 + 2000.0));
-			double combined = ix.run("#combine( alpha #1( gamma alpha ) )", 10).get(0).score;
+			double combined = ix.run("#combine( \"alpha\" #1( \"gamma alpha\" ) )", 10).get(0).score;
 			assertEquals((sAlpha + bg) / 2.0, combined, 1e-3, "cf=0 window must floor, not drop");
 		}
 	}
@@ -111,11 +111,11 @@ public class BeliefOperatorScoreTest {
 	@Test
 	public void proximityWithOovOperandNeverMatchesButFloorsInBelief(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = TestIndex.builder().add("d", "alpha beta").build(dir)) {
-			assertTrue(ix.run("#1( beta zzz )", 10).isEmpty(), "an OOV window must match nothing");
+			assertTrue(ix.run("#1( \"beta zzz\" )", 10).isEmpty(), "an OOV window must match nothing");
 			// single doc |C|=|d|=2, mu=2000; p(#1|C)=0.5/2; #combine(alpha #1(beta zzz)) = (s_alpha + bg)/2.
 			double sAlpha = Math.log(0.5);
 			double bg = Math.log((2000.0 * (0.5 / 2.0)) / (2.0 + 2000.0));
-			double combined = ix.run("#combine( alpha #1( beta zzz ) )", 10).get(0).score;
+			double combined = ix.run("#combine( \"alpha\" #1( \"beta zzz\" ) )", 10).get(0).score;
 			assertEquals((sAlpha + bg) / 2.0, combined, 1e-3, "OOV window must floor its background, not drop");
 		}
 	}
@@ -127,8 +127,8 @@ public class BeliefOperatorScoreTest {
 	// the parser (TASK-0010 Phase 5).
 	@Test
 	public void weightAppliesToSingleOperandCombineChildren(@TempDir Path dir) throws Exception {
-		double skew = score(dir, "s1", "#weight(0.9 #combine(alpha) 0.1 #combine(beta))");
-		double flip = score(dir, "s2", "#weight(0.1 #combine(alpha) 0.9 #combine(beta))");
+		double skew = score(dir, "s1", "#weight( 0.9 #combine( \"alpha\" ) 0.1 #combine( \"beta\" ) )");
+		double flip = score(dir, "s2", "#weight( 0.1 #combine( \"alpha\" ) 0.9 #combine( \"beta\" ) )");
 		assertEquals(0.9 * SA + 0.1 * SB, skew, EPS, "weight must apply to a single-operand #combine child");
 		assertEquals(0.1 * SA + 0.9 * SB, flip, EPS);
 		assertTrue(Math.abs(skew - flip) > 0.1, "weights on single-operand children must not be dropped");
@@ -154,7 +154,7 @@ public class BeliefOperatorScoreTest {
 			double sSun = Math.log((1.0 + mu * (1.0 / C)) / (d + mu));      // cf(sun)=1 collection-wide
 			double bgProx = Math.log((mu * (3.0 / C)) / (d + mu));          // cf(#1(cat dog))=3, not 0
 			double expected = (sSun + bgProx) / 2.0;
-			double q = qScore(ix.run("#combine( sun #1( cat dog ) )", 10));
+			double q = qScore(ix.run("#combine( \"sun\" #1( \"cat dog\" ) )", 10));
 			assertEquals(expected, q, 1e-3, "absent term-op must smooth with collection-wide cf, not segment-local");
 			// Guard against the pre-fix floored (cf=0 -> 0.5) background, which is markedly more negative.
 			double bgFloored = Math.log((mu * (0.5 / C)) / (d + mu));
@@ -179,7 +179,7 @@ public class BeliefOperatorScoreTest {
 	public void oovTermContributesFlooredBackgroundNotDropped(@TempDir Path dir) throws Exception {
 		double mu = 2000.0, C = 3.0, d = 3.0;
 		double sZzz = Math.log((mu * (0.5 / C)) / (d + mu));
-		double combineOov = score(dir, "co", "#combine(alpha zzz)");
+		double combineOov = score(dir, "co", "#combine( \"alpha zzz\" )");
 		assertEquals((SA + sZzz) / 2.0, combineOov, 1e-3, "OOV term must contribute the floored background");
 		// And it must NOT be dropped: including the very-negative OOV background drags the score well
 		// below the alpha-only score (which would be s_alpha ≈ -0.405).

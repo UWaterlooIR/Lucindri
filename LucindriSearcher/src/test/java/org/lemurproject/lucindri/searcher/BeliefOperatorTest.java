@@ -30,7 +30,7 @@ public class BeliefOperatorTest {
 				.add("d2", "apple dog")   // apple  -> match (has dog, penalized, still retrieved)
 				.add("d3", "banana dog")  // no apple, has dog -> must NOT be retrieved
 				.build(dir)) {
-			assertEquals(Set.of("d1", "d2"), set(ix.ids("#combine(apple #not(dog))", 10)));
+			assertEquals(Set.of("d1", "d2"), set(ix.ids("#combine( \"apple\" #not( \"dog\" ) )", 10)));
 		}
 	}
 
@@ -39,7 +39,7 @@ public class BeliefOperatorTest {
 	@Test
 	public void scoreifFiltersToRequiredTerm(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = scoreifCorpus(dir)) {
-			assertEquals(Set.of("s1"), set(ix.ids("#scoreif(dog #combine(cat))", 10)));
+			assertEquals(Set.of("s1"), set(ix.ids("#scoreif( \"dog\" #combine( \"cat\" ) )", 10)));
 		}
 	}
 
@@ -47,7 +47,7 @@ public class BeliefOperatorTest {
 	@Test
 	public void scoreifnotRejectsTerm(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = scoreifCorpus(dir)) {
-			assertEquals(Set.of("s2"), set(ix.ids("#scoreifnot(dog #combine(cat))", 10)));
+			assertEquals(Set.of("s2"), set(ix.ids("#scoreifnot( \"dog\" #combine( \"cat\" ) )", 10)));
 		}
 	}
 
@@ -55,7 +55,7 @@ public class BeliefOperatorTest {
 	@Test
 	public void scoreifWithZeroDocFilterReturnsEmpty(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = scoreifCorpus(dir)) {
-			assertEquals(Set.of(), set(ix.ids("#scoreif(zzznope #combine(cat))", 10)));
+			assertEquals(Set.of(), set(ix.ids("#scoreif( \"zzznope\" #combine( \"cat\" ) )", 10)));
 		}
 	}
 

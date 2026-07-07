@@ -17,14 +17,14 @@ TERMS = ["cat", "dog", "sun", "moon", "tree", "42", "the"]  # 'the' is a stopwor
 
 
 def legal(rng, depth=2):
-    """A small legal query, used as a base for mutation."""
+    """A small legal query, used as a base for mutation. All text is quoted (TASK-0016 quote-only grammar)."""
     if depth <= 0 or rng.random() < 0.4:
-        return rng.choice(TERMS)
+        return '"%s"' % rng.choice(TERMS)
     op = rng.choice(["#combine", "#or", "#max", "#syn", "#1", "#uw3", "#od2", "#weight", "#band"])
     k = rng.randint(2, 3)
     kids = [legal(rng, depth - 1) for _ in range(k)]
     if op in ("#1", "#uw3", "#od2", "#syn", "#band"):
-        kids = [rng.choice(TERMS) for _ in range(k)]  # proximity/syn operands must be positional
+        kids = ['"%s"' % rng.choice(TERMS) for _ in range(k)]  # proximity/syn operands are quoted literals
     if op == "#weight":
         body = " ".join("%.1f %s" % (rng.uniform(0.1, 1.0), c) for c in kids)
         return "#weight( %s )" % body
@@ -58,6 +58,16 @@ def grammar_invalid(rng):
         ("leading-field-dot", ".title %s" % t()),
         ("only-open-paren", "#combine("),
         ("bare-operator", "#combine"),
+        # TASK-0016 quote-only grammar: unquoted text and stray '~' are now rejected.
+        ("unquoted-term", "#combine( %s %s )" % (t(), t())),
+        ("unquoted-token", "#token( %s )" % t()),
+        ("unterminated-quote", '#combine( "%s )' % t()),
+        ("unknown-escape", '#combine( "a\\x" )'),
+        ("midchunk-quote", '#combine( say"hi" )'),
+        ("trailing-after-quote", '#combine( "a"b )'),
+        ("empty-token-op", "#token( )"),
+        ("empty-token-literal", '#token( "" )'),
+        ("tilde-operator", '~combine( "%s" "%s" )' % (t(), t())),
     ]
     return rng.choice(choices)
 
@@ -86,14 +96,14 @@ def mutate(rng):
 
 def adversarial(rng):
     choices = [
-        ("deep-nesting", "#combine( " * 400 + "cat" + " )" * 400),
-        ("wide-operands", "#combine( " + " ".join(["cat"] * 5000) + " )"),
-        ("huge-token", "#combine( " + "a" * 20000 + " cat )"),
+        ("deep-nesting", "#combine( " * 400 + '"cat"' + " )" * 400),
+        ("wide-operands", "#combine( " + " ".join(['"cat"'] * 5000) + " )"),
+        ("huge-token", '#combine( "' + "a" * 20000 + ' cat" )'),
         ("only-whitespace", "     "),
         ("empty", ""),
         ("only-punctuation", "#()#()%s" % rng.choice(["", "()", "###"])),
-        ("control-chars", "#combine( cat\x00\x01 dog )"),
-        ("unicode", "#combine( naïve café 東京 )"),
+        ("control-chars", '#combine( "cat\x00\x01 dog" )'),
+        ("unicode", '#combine( "naïve café 東京" )'),
         ("nested-unbalanced", "#combine( #syn( cat #1( dog )"),
     ]
     return rng.choice(choices)
