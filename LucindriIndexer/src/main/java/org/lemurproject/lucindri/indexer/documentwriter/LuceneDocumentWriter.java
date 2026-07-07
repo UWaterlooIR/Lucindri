@@ -28,6 +28,7 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
 import org.apache.lucene.document.NumericDocValuesField;
+import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.IndexWriterConfig.OpenMode;
@@ -37,6 +38,7 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 import org.lemurproject.lucindri.indexer.domain.IndexingConfiguration;
 import org.lemurproject.lucindri.indexer.domain.ParsedDocument;
+import org.lemurproject.lucindri.indexer.documentparser.DocumentParser;
 import org.lemurproject.lucindri.indexer.domain.ParsedDocumentField;
 import org.lemurproject.lucindri.indexer.factory.ConfigurableAnalyzerFactory;
 
@@ -133,7 +135,15 @@ public class LuceneDocumentWriter implements DocumentWriter {
 			// Add document to search engine
 			for (ParsedDocumentField docField : parsedDoc.getDocumentFields()) {
 				if (docField.getContent() != null) {
-					if (!docField.isNumeric()) {
+					if (DocumentParser.EXTERNALID_FIELD.equals(docField.getFieldName())) {
+						// The docno is metadata, not searchable text: index it as a single, non-analyzed
+						// keyword term (StringField) so an exact TermQuery can look a document up by docno,
+						// and store it (the searcher/TREC output reads the stored value). It gets NO norms,
+						// positions, or exactDocumentLength "<field>_len" -- it is not part of Indri queries,
+						// which are all about the tokenized text (fulltext). (TASK-0020)
+						luceneDoc.add(new StringField(docField.getFieldName(), docField.getContent(),
+								Field.Store.YES));
+					} else if (!docField.isNumeric()) {
 						luceneField = new Field(docField.getFieldName(), docField.getContent(), fieldType);
 						luceneDoc.add(luceneField);
 						if (fieldLengths != null) {

@@ -13,6 +13,7 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
 import org.apache.lucene.document.NumericDocValuesField;
+import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.IndexReader;
@@ -210,11 +211,12 @@ public final class TestIndex implements Closeable {
 				try (IndexWriter writer = new IndexWriter(directory, config)) {
 					for (String[] doc : partDocs) {
 						Document d = new Document();
-						d.add(new Field(EXTERNAL_ID, doc[0], fieldType));
+						// Mirror LuceneDocumentWriter (TASK-0020): externalId is a non-analyzed keyword
+						// StringField (stored, exact-lookupable), NOT tokenized text, and gets no _len.
+						d.add(new StringField(EXTERNAL_ID, doc[0], Field.Store.YES));
 						d.add(new Field(FULLTEXT, doc[1], fieldType));
 						if (exactDocumentLength) {
 							// Mirror LuceneDocumentWriter: count posIncr>0 tokens (= numTerms, no +1).
-							d.add(new NumericDocValuesField(EXTERNAL_ID + "_len", tokenCount(analyzer, EXTERNAL_ID, doc[0])));
 							d.add(new NumericDocValuesField(FULLTEXT + "_len", tokenCount(analyzer, FULLTEXT, doc[1])));
 						}
 						writer.addDocument(d);

@@ -156,6 +156,18 @@ Running the LucindriSearcher can be done from inside an IDE, invoking the main c
 java -jar -Xmx4G LucindriSearcher-1.5-jar-with-dependencies.jar queries.xml
 ```
 
+### Fetching a document by docno (`getdoc`)
+
+The searcher jar also exposes a `getdoc` subcommand that prints a single document's stored `fulltext` to
+stdout, given the index and the document's external id (docno). It is an exact keyword lookup — no query
+analysis — and is handy for inspecting a result or serving full documents:
+```
+java -jar LucindriSearcher-1.5-jar-with-dependencies.jar getdoc /path/to/index shard_00000_0
+```
+The index may be a comma-separated list (searched as one, like the `<index>` parameter). Exit status is
+`0` when the docno is found, `1` when it is not. Running the jar with a queries file as the first argument
+(as above) is unchanged — the `getdoc` subcommand is purely additive.
+
 ## Lucindri Query Language
 
 ### Query text: all text is quoted (TASK-0016)
