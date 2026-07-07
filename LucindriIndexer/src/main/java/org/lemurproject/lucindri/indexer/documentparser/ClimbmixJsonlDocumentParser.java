@@ -45,10 +45,6 @@ public class ClimbmixJsonlDocumentParser extends DocumentParser {
 
 	private static final Logger logger = Logger.getLogger(ClimbmixJsonlDocumentParser.class.getName());
 
-	// The searcher prints the TREC DOCNO from a field literally named "externalId".
-	// The base class EXTERNALID_FIELD is "id" (which the searcher does NOT read), so
-	// we deliberately use our own constant here, as TrecTextDocumentParser does.
-	private static final String EXTERNALID_FIELD = "externalId";
 	private static final String DOCID_KEY = "docid";
 	private static final String CONTENTS_KEY = "contents";
 
