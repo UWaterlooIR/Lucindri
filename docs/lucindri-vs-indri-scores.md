@@ -307,22 +307,35 @@ count=1000. Result (post-TASK-0016 jar):
 |---|---|---|
 | median | **0.0000** | **0.0000** |
 | ≤ 0.05 (exact match) | 1154 | 1154 |
-| 0.05–0.3 (norm residual) | 100 | 100 |
+| 0.05–0.3 (all filter-in-belief) | 100 | 100 |
 | > 0.3 (structural) | 139 | 139 |
 
 - **`#token` ≡ quoted**: the two Lucindri runs are **byte-identical** — `diff_fuzz.py lucindri.run token.run`
   gives max Δ = 0.0000 across all 1393 queries. So the verbatim path scores exactly like the analyzed
   splice, as required on integers.
-- **No new divergence category** (no TASK-0016 regression): all 139 structural (>0.3) queries are the two
-  *already-catalogued* causes — **136** contain a filter-in-belief (`#filreq`/`#filrej`, the Phase-5
-  `WeightedAndNode` renormalization) and **3** are nested `#band` (proximity-in-proximity, TASK-0018);
-  **0** fall in any other category. This reproduces the documented exact-length profile (median 0.0000;
-  structural = filter-in-belief + nested-`#band` only); a handful of near-0.3 queries shuffle between the
-  0.05–0.3 and >0.3 bands vs the pre-TASK-0016 counts (132/103) — count=1000 tie/tail jitter, not a new
-  divergence.
+- **Every divergent query is an already-catalogued cause — 0 unexplained** (no TASK-0016 regression).
+  Categorizing **all 239** queries with Δ>0.05 (not just the >0.3 band): **236** contain a filter-in-belief
+  (`#filreq`/`#filrej`, the Phase-5 `WeightedAndNode` renormalization — 100 of the 0.05–0.3 band + 136 of
+  the >0.3 band) and **3** are nested `#band` (proximity-in-proximity, TASK-0018); **0** fall in any other
+  category. This reproduces the documented exact-length profile (median 0.0000; every residual =
+  filter-in-belief + nested-`#band`); a handful of near-0.3 queries shuffle between the 0.05–0.3 and >0.3
+  bands vs the pre-TASK-0016 counts (103/132) — count=1000 tie/tail jitter, not a new divergence.
 
 Reproduce: `WORK=… IIDX=/ssd-8TB/trec-compare/fuzzfull/i LIDX=/ssd-8TB/trec-compare/el0012/lexact
 SEED=7 M=1500 bash scripts/trec-comparison/diff_fuzz.sh`.
+
+### Per-element phased re-run (committed, C1/C2)
+
+The aggregate fuzz above is complemented by a committed, per-element differential that walks TASK-0010's
+Phases 0–5 on the tiny C1/C2 collections (every score analytically checkable), rendering each query in
+all three dialects and diffing quoted-vs-Indri, token-vs-Indri, and quoted-vs-token (tol 1e-3):
+`scripts/trec-comparison/phase_conformance.sh`. Result: **27/27 PASS** (Phase 0 stats align exactly;
+Phase 1 single-term = analytic; Phase 2 `#combine`/`#or`/`#max`/`#wsum`/`#weight`/`#syn` + OOV-floor +
+absent-term background; Phase 3 `#1`/`#2`/`#uwN`/`#band` + the C2 ordered/unordered count case + OOV-in-
+proximity; Phase 4 `#filreq`/`#filrej` incl. proximity + OOV filter; Phase 5 nesting incl. single-operand
+`#weight` and the topic-401 shape), plus the **1 KNOWN-DIVERGE** = the cataloged filter-in-belief
+(`#weight(0.5 #filreq(30 #combine(10)) 0.5 #combine(20))`, Δ=0.11). **`#token` == quoted on every case
+(Δ=0.000000).** Run: `bash scripts/trec-comparison/phase_conformance.sh [0-5|all]`.
 
 ## Reproduce
 
