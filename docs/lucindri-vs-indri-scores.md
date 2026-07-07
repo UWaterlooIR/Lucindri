@@ -288,6 +288,42 @@ Reproduce: `fuzz_queries.py 7 1500 800 qi.frag ql.frag`, wrap and run against `f
 `el0012/{lexact,lnorm}`, then `diff_fuzz.py fi.run fl_{exact,norm}.run`; isolate `#band` nesting with
 `scripts/trec-comparison/band_probe.sh`.
 
+## TASK-0016 — re-run under the quote-only grammar (three dialects, adds the `#token` path)
+
+Under the TASK-0016 quote-only grammar the two engines no longer share query text, so `fuzz_queries.py`
+now renders each fuzzed tree in **three** dialects from identical RNG draws — bare `525` → **Indri**,
+analyzed splice `"525"` → **Lucindri (quoted)**, verbatim splice `#token("525")` → **Lucindri (#token)** —
+and `scripts/trec-comparison/diff_fuzz.sh` runs Indri once + Lucindri twice and diffs each against Indri.
+On the integer corpus all three are the same single token (integers are stem/stop-invariant; field
+restriction was never tested), so both Lucindri runs must equal the one Indri run, and the `#token` run
+differentially tests the verbatim vocabulary-lookup path for free.
+
+Re-ran the **full Phase-6 differential** (seed 7, 1500 queries — the generator now emits an Indri
+fragment **byte-identical** to the archived `el0012/qi.frag`, i.e. the exact same query set) against the
+full-LATimes Indri oracle `fuzzfull/i` and the exact-length Lucindri index `el0012/lexact`, μ=2000,
+count=1000. Result (post-TASK-0016 jar):
+
+| per-query max Δ | Indri vs Lucindri **quoted** | Indri vs Lucindri **#token** |
+|---|---|---|
+| median | **0.0000** | **0.0000** |
+| ≤ 0.05 (exact match) | 1154 | 1154 |
+| 0.05–0.3 (norm residual) | 100 | 100 |
+| > 0.3 (structural) | 139 | 139 |
+
+- **`#token` ≡ quoted**: the two Lucindri runs are **byte-identical** — `diff_fuzz.py lucindri.run token.run`
+  gives max Δ = 0.0000 across all 1393 queries. So the verbatim path scores exactly like the analyzed
+  splice, as required on integers.
+- **No new divergence category** (no TASK-0016 regression): all 139 structural (>0.3) queries are the two
+  *already-catalogued* causes — **136** contain a filter-in-belief (`#filreq`/`#filrej`, the Phase-5
+  `WeightedAndNode` renormalization) and **3** are nested `#band` (proximity-in-proximity, TASK-0018);
+  **0** fall in any other category. This reproduces the documented exact-length profile (median 0.0000;
+  structural = filter-in-belief + nested-`#band` only); a handful of near-0.3 queries shuffle between the
+  0.05–0.3 and >0.3 bands vs the pre-TASK-0016 counts (132/103) — count=1000 tie/tail jitter, not a new
+  divergence.
+
+Reproduce: `WORK=… IIDX=/ssd-8TB/trec-compare/fuzzfull/i LIDX=/ssd-8TB/trec-compare/el0012/lexact
+SEED=7 M=1500 bash scripts/trec-comparison/diff_fuzz.sh`.
+
 ## Reproduce
 
 `scripts/trec-comparison/score_probe.sh` builds C1/C2 in both engines and prints the per-doc
