@@ -22,7 +22,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 
 CORPUS="${CORPUS:-/ssd-8TB/corpora/t45minusCR}"
-TOPICS="${TOPICS:-/ssd-8TB/trec-topics/401-450.metzler.xml}"
+# TASK-0016: the two engines no longer share one topics file. Lucindri needs the quote-only dialect
+# ("..." literals); C++ Indri needs bare terms. Feed each its own per-dialect file (both parse to the
+# identical query tree — see docs/data/). Legacy $TOPICS, if set, is honored for the Indri side only.
+TOPICS_INDRI="${TOPICS_INDRI:-${TOPICS:-$REPO/docs/data/queries-401-450.metzler.indri.xml}}"
+TOPICS_LUCINDRI="${TOPICS_LUCINDRI:-$REPO/docs/data/queries-401-450.metzler.lucindri.xml}"
 INDRI_BIN="${INDRI_BIN:-/ssd-8TB/installs/indri-5.21/bin}"
 JAR_IDX="${JAR_IDX:-$REPO/LucindriIndexer/target/LucindriIndexer-1.45-jar-with-dependencies.jar}"
 JAR_SRCH="${JAR_SRCH:-$REPO/LucindriSearcher/target/LucindriSearcher-1.5-jar-with-dependencies.jar}"
@@ -49,12 +53,13 @@ if [ "${REBUILD:-0}" = 1 ] || [ ! -d "$WORK/lucindri_idx" ]; then
   java -jar -Xmx8G "$JAR_IDX" "$WORK/lucindri.properties"
 fi
 
-# ---- run topics through both engines ----
-QFRAG="$WORK/queries.frag"; grep "<query>" "$TOPICS" > "$QFRAG"
+# ---- run topics through both engines (each gets its own dialect) ----
+QFRAG_I="$WORK/queries.indri.frag";    grep "<query>" "$TOPICS_INDRI"    > "$QFRAG_I"
+QFRAG_L="$WORK/queries.lucindri.frag"; grep "<query>" "$TOPICS_LUCINDRI" > "$QFRAG_L"
 { echo "<parameters>"; echo "<index>$WORK/indri_idx</index>"; echo "<rule>method:dirichlet,mu:$MU</rule>";
-  echo "<count>$COUNT</count>"; echo "<trecFormat>true</trecFormat>"; cat "$QFRAG"; echo "</parameters>"; } > "$WORK/run_indri.param"
+  echo "<count>$COUNT</count>"; echo "<trecFormat>true</trecFormat>"; cat "$QFRAG_I"; echo "</parameters>"; } > "$WORK/run_indri.param"
 { echo "<parameters>"; echo "<index>$WORK/lucindri_idx</index>"; echo "<rule>dirichlet:$MU</rule>";
-  echo "<count>$COUNT</count>"; echo "<trecFormat>true</trecFormat>"; cat "$QFRAG"; echo "</parameters>"; } > "$WORK/run_lucindri.xml"
+  echo "<count>$COUNT</count>"; echo "<trecFormat>true</trecFormat>"; cat "$QFRAG_L"; echo "</parameters>"; } > "$WORK/run_lucindri.xml"
 
 echo ">> running Indri";    "$INDRI_BIN/IndriRunQuery" "$WORK/run_indri.param" </dev/null 2>/dev/null > "$WORK/indri.run"
 echo ">> running Lucindri"; java -jar -Xmx8G "$JAR_SRCH" "$WORK/run_lucindri.xml" 2>/dev/null > "$WORK/lucindri.run"
