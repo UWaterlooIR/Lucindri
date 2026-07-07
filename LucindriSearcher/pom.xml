@@ -106,7 +106,7 @@
 				<configuration>
 					<archive>
 						<manifest>
-							<mainClass>org.lemurproject.lucindri.searcher.IndriSearch</mainClass>
+							<mainClass>org.lemurproject.lucindri.searcher.LucindriCli</mainClass>
 						</manifest>
 					</archive>
 					<descriptorRefs>

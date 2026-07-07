@@ -33,7 +33,6 @@ import org.xml.sax.SAXException;
  */
 public class TrecTextDocumentParser extends DocumentParser {
 
-	private final static String EXTERNALID_FIELD = "externalId";
 	private final static String ID_FIELD = "internalId";
 	private final static String BODY_FIELD = "body";
 	private final static String TEXT_FIELD = "text";
