@@ -1,3 +1,4 @@
+<!-- TREC-8 topics 401-450, Metzler SDM queries. C++ INDRI dialect: BARE terms (Indri quotes mean a single unstemmed term, not multi-word). For Lucindri post-TASK-0016 (quote-only grammar) use queries-401-450.metzler.lucindri.xml — the two are semantically identical (verified: parse to the same Query). -->
 <parameters>
 <query><number>401</number><text>#weight( 0.8 #combine( foreign minorities germany ) 0.1 #combine( #1( minorities germany  )  #1( foreign minorities  )  #1( foreign minorities germany  ) ) 0.1 #combine( #uw8( minorities germany  )  #uw8( foreign germany  )  #uw8( foreign minorities  )  #uw12( foreign minorities germany  ) ) )</text></query>
 <query><number>402</number><text>#weight( 0.8 #combine( behavioral genetics ) 0.1 #combine( #1( behavioral genetics  ) ) 0.1 #combine( #uw8( behavioral genetics  ) ) )</text></query>
