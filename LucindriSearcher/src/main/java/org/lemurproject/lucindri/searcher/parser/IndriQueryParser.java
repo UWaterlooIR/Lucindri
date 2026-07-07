@@ -62,6 +62,8 @@ public class IndriQueryParser {
 	private final static String SCOREIFNOT = "scoreifnot";
 	private final static String SYNONYM = "syn";
 	private final static String NOT = "not";
+	/** #token(...) is a verbatim SPLICE, not a scoring operator — it must never reach createOperator. (TASK-0016) */
+	private final static String TOKEN_SPLICE = "token";
 	private final static String DEFAULT_FIELD_NAME = "fulltext";
 
 	/**
@@ -142,37 +144,66 @@ public class IndriQueryParser {
 	}
 
 	/**
-	 * Count the number of occurrences of character c in string s.
-	 * 
-	 * @param c A character.
-	 * @param s A string.
+	 * Given {@code s.charAt(start)=='"'}, returns the index of the literal's closing quote. Escapes:
+	 * only {@code \"} and {@code \\} are legal. Errors: unterminated literal, unknown escape. (TASK-0016)
 	 */
-	private static int countChars(String s, char c) {
-		int count = 0;
-
-		for (int i = 0; i < s.length(); i++) {
-			if (s.charAt(i) == c) {
-				count++;
+	private static int endOfLiteral(String s, int start) {
+		for (int i = start + 1; i < s.length(); i++) {
+			char c = s.charAt(i);
+			if (c == '\\') {
+				if (i + 1 >= s.length() || (s.charAt(i + 1) != '"' && s.charAt(i + 1) != '\\')) {
+					syntaxError("unknown escape in string literal (only \\\" and \\\\ are supported)");
+				}
+				i++; // skip the escaped character
+			} else if (c == '"') {
+				return i;
 			}
 		}
-		return count;
+		syntaxError("unterminated string literal");
+		throw new AssertionError("unreachable"); // syntaxError always throws
 	}
 
-	/**
-	 * Get the index of the right parenenthesis that balances the left-most
-	 * parenthesis. Return -1 if it doesn't exist.
-	 * 
-	 * @param s A string containing a query.
-	 */
-	private static int indexOfBalencingParen(String s) {
-		int depth = 0;
+	/** Unescape the CONTENTS of a literal (between the quotes). Assumes {@link #endOfLiteral} validated it. */
+	private static String unescapeLiteral(String contents) {
+		StringBuilder sb = new StringBuilder(contents.length());
+		for (int i = 0; i < contents.length(); i++) {
+			char c = contents.charAt(i);
+			if (c == '\\') {
+				i++;
+				c = contents.charAt(i);
+			}
+			sb.append(c);
+		}
+		return sb.toString();
+	}
 
+	/** Counts '(' and ')' OUTSIDE string literals; validates every literal en route. (TASK-0016) */
+	private static int[] countParens(String s) {
+		int open = 0, close = 0;
 		for (int i = 0; i < s.length(); i++) {
-			if (s.charAt(i) == '(') {
-				depth++;
-			} else if (s.charAt(i) == ')') {
-				depth--;
+			char c = s.charAt(i);
+			if (c == '"') {
+				i = endOfLiteral(s, i);
+			} else if (c == '(') {
+				open++;
+			} else if (c == ')') {
+				close++;
+			}
+		}
+		return new int[] { open, close };
+	}
 
+	/** Index of the ')' balancing the left-most '(' outside literals; -1 if none. (TASK-0016) */
+	private static int indexOfBalancingParen(String s) {
+		int depth = 0;
+		for (int i = 0; i < s.length(); i++) {
+			char c = s.charAt(i);
+			if (c == '"') {
+				i = endOfLiteral(s, i);
+			} else if (c == '(') {
+				depth++;
+			} else if (c == ')') {
+				depth--;
 				if (depth == 0) {
 					return i;
 				}
@@ -181,13 +212,36 @@ public class IndriQueryParser {
 		return -1;
 	}
 
+	/** Index of the first '(' outside literals; -1 if none. (TASK-0016) */
+	private static int indexOfFirstParen(String s) {
+		for (int i = 0; i < s.length(); i++) {
+			char c = s.charAt(i);
+			if (c == '"') {
+				i = endOfLiteral(s, i);
+			} else if (c == '(') {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	/** True iff the next operand is a {@code #token(...)} splice (case-insensitive). (TASK-0016) */
+	private static boolean isTokenSplice(String s) {
+		int paren = s.indexOf('(');
+		if (paren < 0) {
+			return false;
+		}
+		String name = s.substring(0, paren).trim().toLowerCase().replace("#", "");
+		return name.equals(TOKEN_SPLICE);
+	}
+
 	private QueryParserOperatorQuery createOperator(String operatorName, Occur occur) {
 		QueryParserOperatorQuery operatorQuery = new QueryParserOperatorQuery();
 
 		int operatorDistance = 0;
 		String operatorNameLowerCase = (new String(operatorName)).toLowerCase();
 		operatorNameLowerCase = operatorNameLowerCase.replace("#", "");
-		operatorNameLowerCase = operatorNameLowerCase.replace("~", "");
+		// '~' is no longer an operator prefix (TASK-0016): the only prefix is '#'.
 
 		// Translate indri syntax for near and unordered window. #N and Indri's canonical #odN spelling
 		// are the same ordered window (near); #uwN is the unordered window. (TASK-0014 aliases #odN.)
@@ -310,7 +364,7 @@ public class IndriQueryParser {
 	 */
 	private String popSubquery(String argString, QueryParserOperatorQuery queryTree, Float weight, Occur occur) {
 
-		int i = indexOfBalencingParen(argString);
+		int i = indexOfBalancingParen(argString);
 
 		if (i < 0) {
 			// A subquery whose parentheses never balance. The top-level check normally catches this;
@@ -327,47 +381,72 @@ public class IndriQueryParser {
 	}
 
 	/**
-	 * Remove a term from an argument string. Return the term and the modified
-	 * argument string.
-	 * 
-	 * @param String A partial query argument string, e.g., "a b c d".
-	 * @return PopData<String,String> The term string and the modified argString
-	 *         (e.g., "a" and "b c d".
+	 * Pops one {@code "..."} literal and splices its analyzed tokens into {@code queryTree}. ALL query
+	 * text is quoted: an unquoted chunk here is a syntax error (bare terms were removed — they were the
+	 * catch-all that turned typos into queries). The whole literal goes to the index analyzer, so query
+	 * tokens equal index tokens by construction; 0..n term nodes come out. (TASK-0016)
 	 */
-	private String popTerm(String argString, QueryParserOperatorQuery queryTree, Float weight, Occur occur) {
-		String[] substrings = argString.split("[ \t\n\r]+", 2);
-		String token = substrings[0];
-
-		// Split the token into a term and a field.
-		int delimiter = token.indexOf('.');
-		String field = null;
-		String term = null;
-
-		if (delimiter < 0) {
-			field = defaultField;
-			term = token;
-		} else { // Remove the field from the token
-			field = token.substring(delimiter + 1).toLowerCase();
-			term = token.substring(0, delimiter);
+	private String popLiteral(String argString, QueryParserOperatorQuery queryTree, Float weight, Occur occur) {
+		if (argString.charAt(0) != '"') {
+			String chunk = argString.split("[ \t\n\r]+", 2)[0];
+			syntaxError("unquoted text '" + chunk + "' — query text must be quoted, e.g. #combine(\"dog cat\")");
 		}
+		int end = endOfLiteral(argString, 0);
+		if (end + 1 < argString.length() && !Character.isWhitespace(argString.charAt(end + 1))) {
+			syntaxError("unexpected character after closing quote (a literal must be its own chunk)");
+		}
+		String rawText = unescapeLiteral(argString.substring(1, end));
+		String remainder = argString.substring(end + 1);
 
-		List<String> tokens = tokenizeString(analyzer, term);
-		for (String t : tokens) {
-			// Creat the term query
+		for (String t : tokenizeString(analyzer, rawText)) {
 			QueryParserTermQuery termQuery = new QueryParserTermQuery();
 			termQuery.setTerm(t);
-			termQuery.setField(field);
+			termQuery.setField(defaultField);
 			termQuery.setOccur(occur);
 			queryTree.addSubquery(termQuery, weight);
 		}
+		return remainder.trim();
+	}
 
-		if (substrings.length < 2) { // Is this the last argument?
-			argString = "";
-		} else {
-			argString = substrings[1];
+	/**
+	 * {@code #token("a" "b" ...)}: whitespace-separated QUOTED tokens, each a vocabulary entry used
+	 * AS-IS — no tokenization, stemming, stopping, or lowercasing. Unquoted contents are a syntax error
+	 * (the same all-text-is-quoted rule as everywhere else). OOV entries flow through the existing
+	 * floored-background path (IndriMissingTermScorer), like any other absent term. (TASK-0016)
+	 */
+	private String popTokenSplice(String argString, QueryParserOperatorQuery queryTree, Float weight,
+			Occur occur) {
+		int close = indexOfBalancingParen(argString);
+		if (close < 0) {
+			syntaxError("unbalanced parentheses in #token");
 		}
-
-		return argString;
+		String contents = argString.substring(argString.indexOf('(') + 1, close).trim();
+		if (contents.isEmpty()) {
+			syntaxError("#token has no operands");
+		}
+		while (!contents.isEmpty()) {
+			if (contents.charAt(0) != '"') {
+				String chunk = contents.split("[ \t\n\r]+", 2)[0];
+				syntaxError("unquoted token '" + chunk + "' in #token — tokens must be quoted, e.g. #token(\"u.s.a\")");
+			}
+			int end = endOfLiteral(contents, 0);
+			if (end + 1 < contents.length() && !Character.isWhitespace(contents.charAt(end + 1))) {
+				syntaxError("unexpected character after closing quote in #token");
+			}
+			String term = unescapeLiteral(contents.substring(1, end));
+			contents = contents.substring(end + 1).trim();
+			if (term.isEmpty()) {
+				// #token("") — a verbatim EMPTY token can never exist in the vocabulary; unlike an
+				// analyzed empty splice (legal), this is necessarily a mistake. Loud.
+				syntaxError("#token: empty term");
+			}
+			QueryParserTermQuery termQuery = new QueryParserTermQuery();
+			termQuery.setTerm(term);
+			termQuery.setField(defaultField);
+			termQuery.setOccur(occur);
+			queryTree.addSubquery(termQuery, weight);
+		}
+		return argString.substring(close + 1);
 	}
 
 	private QueryParserQuery parseQueryString(String queryString, Occur occur) {
@@ -388,33 +467,38 @@ public class IndriQueryParser {
 	private QueryParserQuery parseQueryStringInner(String queryString, Occur occur) {
 		// Create the query tree
 		// This simple parser is sensitive to parenthesis placement, so check for basic errors first.
-		queryString = queryString.trim(); // The last character should be ')'
+		queryString = queryString.trim();
 
-		// Parentheses must be balanced, and if any are present the leading operator must enclose the whole
-		// (sub)query (its balancing ')' is the last character). Zero parens is legal — a bare-term query
-		// (e.g. "dog training") defaults to #combine. Previously this validation was disabled, so
-		// malformed parentheses fell through to substring()/lastIndexOf() and crashed with
-		// StringIndexOutOfBounds. (TASK-0015)
-		int openParens = countChars(queryString, '(');
-		int closeParens = countChars(queryString, ')');
-		if (openParens != closeParens) {
-			syntaxError("unbalanced parentheses (" + openParens + " '(' vs " + closeParens + " ')')");
+		// Parens must be balanced (counted OUTSIDE literals; countParens also validates every literal).
+		// If any structural parens are present, the query must be a single #operator enclosing everything
+		// (its balancing ')' is the last character). Zero parens is legal (a whole-query "..." literal or
+		// #token defaults to #combine). (TASK-0015 hardening; TASK-0016 literal-awareness.)
+		int[] parens = countParens(queryString);
+		if (parens[0] != parens[1]) {
+			syntaxError("unbalanced parentheses (" + parens[0] + " '(' vs " + parens[1] + " ')')");
 		}
-		if (openParens > 0 && indexOfBalencingParen(queryString) != (queryString.length() - 1)) {
-			syntaxError("misplaced parentheses: an operator must enclose its entire (sub)query");
+		if (parens[0] > 0) {
+			if (queryString.charAt(0) != '#') {
+				// e.g. dog(cat) — parens require a #operator; must NOT silently become analyzed text.
+				// ('~' is no longer an operator prefix; ~foo(...) errors here.) (TASK-0016)
+				syntaxError("parentheses require a #operator (use \"...\" to include parens as text)");
+			}
+			if (indexOfBalancingParen(queryString) != (queryString.length() - 1)) {
+				syntaxError("misplaced parentheses: an operator must enclose its entire (sub)query");
+			}
 		}
 
-		// The query language is prefix-oriented, so the query string can
-		// be processed left to right. At each step, a substring is
-		// popped from the head (left) of the string, and is converted to
-		// a Qry object that is added to the query tree. Subqueries are
-		// handled via recursion.
-
-		// Find the left-most query operator and start the query tree.
-		String[] substrings = queryString.split("[(]", 2);
+		// Leading operator: only when the query starts with # AND has a structural paren AND is not a
+		// #token splice (a splice is an operand, not an operator — a whole-query #token(...) is treated
+		// like a term query: wrapped in the implicit #combine and popped by the operand loop).
+		int firstParen = indexOfFirstParen(queryString);
 		String queryOperator = AND;
-		if (substrings.length > 1) {
-			queryOperator = substrings[0].trim();
+		// ORDER MATTERS: firstParen > 0 must be tested FIRST — it implies queryString is non-empty, so the
+		// charAt(0) calls are safe. parseQuery("") is reachable (only null is guarded) and must keep
+		// yielding an empty AND tree, not StringIndexOutOfBounds. (TASK-0016 plan review)
+		boolean hasOperator = firstParen > 0 && queryString.charAt(0) == '#' && !isTokenSplice(queryString);
+		if (hasOperator) {
+			queryOperator = queryString.substring(0, firstParen).trim();
 		}
 		QueryParserOperatorQuery queryTree = createOperator(queryOperator, occur);
 		if (queryOperator.endsWith(SCOREIF)) {
@@ -423,16 +507,12 @@ public class IndriQueryParser {
 			occur = Occur.MUST_NOT;
 		}
 
-		// Start consuming queryString by removing the query operator and
-		// its terminating ')'. queryString is always the part of the
-		// query that hasn't been processed yet.
-
-		if (substrings.length > 1) {
-			queryString = substrings[1];
-			queryString = queryString.substring(0, queryString.lastIndexOf(")")).trim();
-			// A literal empty operator (e.g. #combine(), #uw2()) is malformed. Note this is NOT the same
-			// as an operator whose operands are all stopwords (#combine(the a)): that has raw text here and
-			// only becomes empty AFTER analysis, which is legal and yields no results, like Indri. (TASK-0015)
+		if (hasOperator) {
+			// Balancing ')' is enforced above to be the LAST character — strip the operator and that paren
+			// positionally (the old lastIndexOf(")") could bite a ')' inside a trailing literal). An operator
+			// with no operands (#combine()) is malformed; one emptied only by analysis (#combine("the a")) is
+			// legal and matches nothing, like Indri. (TASK-0015/0016)
+			queryString = queryString.substring(firstParen + 1, queryString.length() - 1).trim();
 			if (queryString.isEmpty()) {
 				syntaxError("operator " + queryOperator + " has no operands");
 			}
@@ -456,12 +536,18 @@ public class IndriQueryParser {
 				queryString = popWeight.getQueryString();
 			}
 
-			// Now handle the argument (which could be a subquery).
-			if (queryString.charAt(0) == '#' || queryString.charAt(0) == '~') { // Subquery
-				queryString = popSubquery(queryString, queryTree, weight, occur).trim();
+			// Now handle the argument: a #operator subquery, a #token(...) verbatim splice, or a "..."
+			// literal. Anything unquoted (bare terms, stray '~', an operator missing its '#') errors
+			// inside popLiteral — the quote-only grammar (TASK-0016).
+			if (queryString.charAt(0) == '#') {
+				if (isTokenSplice(queryString)) {
+					queryString = popTokenSplice(queryString, queryTree, weight, occur).trim();
+				} else {
+					queryString = popSubquery(queryString, queryTree, weight, occur).trim();
+				}
 				occur = Occur.SHOULD;
-			} else { // Term
-				queryString = popTerm(queryString, queryTree, weight, occur);
+			} else { // must be a "..." literal — anything unquoted is rejected inside popLiteral
+				queryString = popLiteral(queryString, queryTree, weight, occur);
 				occur = Occur.SHOULD;
 			}
 		}
@@ -470,15 +556,13 @@ public class IndriQueryParser {
 	}
 
 	public Query parseQuery(String queryString) {
-		// TODO: json or indri query
+		// The index analyzer is the single tokenization authority (TASK-0016): no pre-rewrites. Query
+		// text enters only through "..." literals (analyzed) or #token("...") (verbatim); the four old
+		// replaces ('/"/+/:) and popTerm's dot-split were the bug that made query tokens != index tokens.
 		if (queryString == null) {
 			return null;
 		}
 		parseDepth = 0;
-		queryString = queryString.replace("'", "");
-		queryString = queryString.replace("\"", "");
-		queryString = queryString.replace("+", " ");
-		queryString = queryString.replace(":", ".");
 		QueryParserQuery qry = parseQueryString(queryString, Occur.SHOULD);
 		return getLuceneQuery(qry);
 	}

@@ -2,11 +2,16 @@ import random, sys
 seed=int(sys.argv[1]); M=int(sys.argv[2]); Vfreq=int(sys.argv[3]) if len(sys.argv)>3 else 800
 rng=random.Random(seed)
 # integer vocabulary: id 1..80053 exist; bias to frequent (small ids); sprinkle rare + OOV(>80053)
+# Dialect-aware term rendering (TASK-0016): Indri terms are bare (`525`), Lucindri terms are quoted
+# ("525") — semantically identical, so score comparison is unaffected. The RNG draw is the same either
+# way (only the formatting differs), so both dialects still render the same tree via the setstate trick.
+DIALECT='indri'
 def term():
     r=rng.random()
-    if r<0.85: return str(rng.randint(1,Vfreq))          # frequent
-    if r<0.97: return str(rng.randint(1,80053))          # any real id
-    return str(rng.randint(80054,90000))                 # OOV (absent)
+    if r<0.85: t=str(rng.randint(1,Vfreq))               # frequent
+    elif r<0.97: t=str(rng.randint(1,80053))             # any real id
+    else: t=str(rng.randint(80054,90000))                # OOV (absent)
+    return '"%s"'%t if DIALECT=='lucindri' else t
 def weights(n): return [round(rng.uniform(0.1,1.0),2) for _ in range(n)]
 # a proximity operand: term / proximity / #syn (never a belief op)
 def prox_operand(d):
@@ -52,7 +57,7 @@ out_i=open(sys.argv[4],'w'); out_l=open(sys.argv[5],'w')
 for i in range(1,M+1):
     d=rng.randint(1,4)
     # ensure same random draws produce the same tree in both dialects: build once, render twice
-    st=rng.getstate(); qi=belief(d,'indri'); rng.setstate(st); ql=belief(d,'lucindri')
+    st=rng.getstate(); DIALECT='indri'; qi=belief(d,'indri'); rng.setstate(st); DIALECT='lucindri'; ql=belief(d,'lucindri')
     out_i.write("<query><number>%d</number><text>%s</text></query>\n"%(i,qi))
     out_l.write("<query><number>%d</number><text>%s</text></query>\n"%(i,ql))
 print("generated",M,"queries")

@@ -28,7 +28,7 @@ public class TestIndexSmokeTest {
 				.add("d2", "dog cat filler")   // reversed — must NOT match #1(cat dog)
 				.add("d3", "sun moon rain")
 				.build(dir)) {
-			assertEquals(List.of("d1"), ix.ids("#1(cat dog)", 10));
+			assertEquals(List.of("d1"), ix.ids("#1( \"cat dog\" )", 10));
 		}
 	}
 
@@ -41,7 +41,7 @@ public class TestIndexSmokeTest {
 				.add("p1d1", "alpha cat dog")
 				.add("p1d2", "sun moon rain")
 				.build(dir)) {
-			List<String> ids = ix.ids("#1(cat dog)", 10);
+			List<String> ids = ix.ids("#1( \"cat dog\" )", 10);
 			assertEquals(2, ids.size(), () -> "got " + ids);
 			assertTrue(ids.contains("p0d1") && ids.contains("p1d1"), () -> "got " + ids);
 		}

@@ -28,7 +28,7 @@ public class ProximityOperatorTest {
 	@Test
 	public void beliefOperandInProximityThrowsClearError(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = TestIndex.builder().add("d1", "cat dog sun").build(dir)) {
-			assertThrows(IllegalArgumentException.class, () -> ix.run("#band(#or(cat dog) sun)", 10));
+			assertThrows(IllegalArgumentException.class, () -> ix.run("#band( #or( \"cat dog\" ) \"sun\" )", 10));
 		}
 	}
 
@@ -41,7 +41,7 @@ public class ProximityOperatorTest {
 				.add("d1", "filler cat dog")   // phrase at position 1
 				.add("d2", "dog cat")          // reversed -> must NOT match
 				.build(dir)) {
-			assertEquals(Set.of("d0", "d1"), set(ix.ids("#1(cat dog)", 10)));
+			assertEquals(Set.of("d0", "d1"), set(ix.ids("#1( \"cat dog\" )", 10)));
 		}
 	}
 
@@ -62,7 +62,7 @@ public class ProximityOperatorTest {
 	public void bandOfTwoSynFacets(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = facetCorpus(dir)) {
 			assertEquals(Set.of("d1", "d2"),
-					set(ix.ids("#band(#syn(apple bird) #syn(cat dog))", 10)));
+					set(ix.ids("#band( #syn( \"apple bird\" ) #syn( \"cat dog\" ) )", 10)));
 		}
 	}
 
@@ -70,7 +70,7 @@ public class ProximityOperatorTest {
 	public void unorderedWindowOfTwoSynFacets(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = facetCorpus(dir)) {
 			assertEquals(Set.of("d1", "d2"),
-					set(ix.ids("#uw4(#syn(apple bird) #syn(cat dog))", 10)));
+					set(ix.ids("#uw4( #syn( \"apple bird\" ) #syn( \"cat dog\" ) )", 10)));
 		}
 	}
 
@@ -80,7 +80,7 @@ public class ProximityOperatorTest {
 			// #1 ordered: a group1 term immediately followed by a group2 term.
 			// d1="apple cat", d2="bird dog" both match (also exercises the position-0 fix).
 			assertEquals(Set.of("d1", "d2"),
-					set(ix.ids("#1(#syn(apple bird) #syn(cat dog))", 10)));
+					set(ix.ids("#1( #syn( \"apple bird\" ) #syn( \"cat dog\" ) )", 10)));
 		}
 	}
 
@@ -88,8 +88,8 @@ public class ProximityOperatorTest {
 	public void broadeningAFacetNeverShrinksResults(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = facetCorpus(dir)) {
 			// #band(#syn(apple bird) cat) must be a superset of #band(apple cat).
-			Set<String> narrow = set(ix.ids("#band(apple cat)", 10));
-			Set<String> broad = set(ix.ids("#band(#syn(apple bird) cat)", 10));
+			Set<String> narrow = set(ix.ids("#band( \"apple cat\" )", 10));
+			Set<String> broad = set(ix.ids("#band( #syn( \"apple bird\" ) \"cat\" )", 10));
 			assertEquals(Set.of("d1"), narrow, "plain-term band");
 			// broad matches docs with (apple|bird) AND cat: d1 (apple,cat) and d4 (cat, no g1? d4=cat dog -> no apple/bird) => only d1
 			assertEquals(true, broad.containsAll(narrow), () -> "broad=" + broad + " narrow=" + narrow);
@@ -109,9 +109,9 @@ public class ProximityOperatorTest {
 				.add("gap2", "alpha gamma delta beta") // span 4 (two words between)
 				.build(dir)) {
 			// #uwN = terms within an unordered window of N positions, i.e. inclusive span <= N.
-			assertEquals(Set.of("adj", "rev"), set(ix.ids("#uw2(alpha beta)", 10)), "#uw2 = span<=2");
-			assertEquals(Set.of("adj", "rev", "gap1"), set(ix.ids("#uw3(alpha beta)", 10)), "#uw3 = span<=3");
-			assertEquals(Set.of("adj", "rev", "gap1", "gap2"), set(ix.ids("#uw4(alpha beta)", 10)), "#uw4 = span<=4");
+			assertEquals(Set.of("adj", "rev"), set(ix.ids("#uw2( \"alpha beta\" )", 10)), "#uw2 = span<=2");
+			assertEquals(Set.of("adj", "rev", "gap1"), set(ix.ids("#uw3( \"alpha beta\" )", 10)), "#uw3 = span<=3");
+			assertEquals(Set.of("adj", "rev", "gap1", "gap2"), set(ix.ids("#uw4( \"alpha beta\" )", 10)), "#uw4 = span<=4");
 		}
 	}
 
@@ -127,7 +127,7 @@ public class ProximityOperatorTest {
 				.add("adj", "alpha beta")         // span 2
 				.add("gap", "alpha gamma beta")   // span 3 -> excluded from #uw2
 				.build(dir)) {
-			assertEquals(Set.of("dup", "adj"), set(ix.ids("#uw2(alpha beta)", 10)));
+			assertEquals(Set.of("dup", "adj"), set(ix.ids("#uw2( \"alpha beta\" )", 10)));
 		}
 	}
 
@@ -136,7 +136,7 @@ public class ProximityOperatorTest {
 	@Test
 	public void plainTermBandUnaffected(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = facetCorpus(dir)) {
-			assertEquals(Set.of("d1"), set(ix.ids("#band(apple cat)", 10)));
+			assertEquals(Set.of("d1"), set(ix.ids("#band( \"apple cat\" )", 10)));
 		}
 	}
 
@@ -147,8 +147,8 @@ public class ProximityOperatorTest {
 				.add("d2", "bird moon")
 				.add("d3", "moon star")
 				.build(dir)) {
-			assertEquals(Set.of("d1", "d2"), set(ix.ids("#syn(apple bird)", 10)));
-			assertEquals(Set.of("d1"), set(ix.ids("#1(apple cat)", 10)));
+			assertEquals(Set.of("d1", "d2"), set(ix.ids("#syn( \"apple bird\" )", 10)));
+			assertEquals(Set.of("d1"), set(ix.ids("#1( \"apple cat\" )", 10)));
 		}
 	}
 
@@ -162,13 +162,13 @@ public class ProximityOperatorTest {
 				.add("d1", "filler cat dog")   // ordered phrase, not at position 0
 				.add("d2", "dog cat")          // reversed -> not an ordered match, but IS an #and/#combine match
 				.build(dir)) {
-			Set<String> near = set(ix.ids("#1(cat dog)", 10));
+			Set<String> near = set(ix.ids("#1( \"cat dog\" )", 10));
 			assertEquals(Set.of("d0", "d1"), near);
-			assertEquals(near, set(ix.ids("#od1(cat dog)", 10)), "#od1 must equal #1 (ordered window)");
-			assertEquals(set(ix.ids("#2(cat dog)", 10)), set(ix.ids("#od2(cat dog)", 10)), "#od2 must equal #2");
+			assertEquals(near, set(ix.ids("#od1( \"cat dog\" )", 10)), "#od1 must equal #1 (ordered window)");
+			assertEquals(set(ix.ids("#2( \"cat dog\" )", 10)), set(ix.ids("#od2( \"cat dog\" )", 10)), "#od2 must equal #2");
 			// The whole point: #odN must NOT behave like #combine, which also matches the reversed d2.
-			assertEquals(Set.of("d0", "d1", "d2"), set(ix.ids("#combine(cat dog)", 10)));
-			assertEquals(true, !set(ix.ids("#od1(cat dog)", 10)).contains("d2"), "#od1 must not match reversed doc");
+			assertEquals(Set.of("d0", "d1", "d2"), set(ix.ids("#combine( \"cat dog\" )", 10)));
+			assertEquals(true, !set(ix.ids("#od1( \"cat dog\" )", 10)).contains("d2"), "#od1 must not match reversed doc");
 		}
 	}
 
@@ -181,9 +181,9 @@ public class ProximityOperatorTest {
 				.add("d1", "cat dog")
 				.add("d2", "dog sun")
 				.build(dir)) {
-			assertEquals(set(ix.ids("cat", 10)), set(ix.ids("#1(cat)", 10)), "#1(x) must match exactly x");
-			assertEquals(Set.of("d1"), set(ix.ids("#1(cat)", 10)));
-			assertEquals(set(ix.ids("dog", 10)), set(ix.ids("#uw4(dog)", 10)), "#uwN(x) must match exactly x");
+			assertEquals(set(ix.ids("\"cat\"", 10)), set(ix.ids("#1( \"cat\" )", 10)), "#1( \"x\" )\"must match exactly x\"");
+			assertEquals(Set.of("d1"), set(ix.ids("#1( \"cat\" )", 10)));
+			assertEquals(set(ix.ids("\"dog\"", 10)), set(ix.ids("#uw4( \"dog\" )", 10)), "#uwN( \"x\" )\"must match exactly x\"");
 		}
 	}
 
@@ -192,13 +192,13 @@ public class ProximityOperatorTest {
 	@Test
 	public void unknownOperatorIsRejectedNotDegradedToAnd(@TempDir Path dir) throws Exception {
 		try (TestIndex ix = TestIndex.builder().add("d1", "cat dog sun").build(dir)) {
-			assertThrows(IllegalArgumentException.class, () -> ix.run("#bogus(cat dog)", 10));
-			assertThrows(IllegalArgumentException.class, () -> ix.run("#bogus(cat)", 10), "single-operand unknown too");
-			assertThrows(IllegalArgumentException.class, () -> ix.run("#combine(cat #bogus(dog))", 10), "nested unknown");
+			assertThrows(IllegalArgumentException.class, () -> ix.run("#bogus( \"cat dog\" )", 10));
+			assertThrows(IllegalArgumentException.class, () -> ix.run("#bogus( \"cat\" )", 10), "single-operand unknown too");
+			assertThrows(IllegalArgumentException.class, () -> ix.run("#combine( \"cat\" #bogus( \"dog\" ) )", 10), "nested unknown");
 			// unimplemented Indri operators must error, not degrade to #and
-			assertThrows(IllegalArgumentException.class, () -> ix.run("#wsyn(cat dog)", 10));
-			assertThrows(IllegalArgumentException.class, () -> ix.run("#prior(cat)", 10));
-			assertThrows(IllegalArgumentException.class, () -> ix.run("#od(cat dog)", 10), "#od with no number is invalid");
+			assertThrows(IllegalArgumentException.class, () -> ix.run("#wsyn( \"cat dog\" )", 10));
+			assertThrows(IllegalArgumentException.class, () -> ix.run("#prior( \"cat\" )", 10));
+			assertThrows(IllegalArgumentException.class, () -> ix.run("#od( \"cat dog\" )", 10), "#od with no number is invalid");
 		}
 	}
 }

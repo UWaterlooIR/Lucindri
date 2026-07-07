@@ -295,8 +295,8 @@ proximity-under-belief match Indri exactly. Reproduce with `scripts/trec-compari
 
 The parser aliases `#odN → #N` (so `#od5` ≡ `#5`, the ordered window) and **rejects** any operator not
 on this allow-list with a clear error, rather than silently degrading it to `#and` (TASK‑0014). A
-single-operand window is the term itself (`#1(x) ≡ x`, matching Indri — e.g. `#1(the house)` after the
-stopword is dropped).
+single-operand window is the term itself (`#1(x) ≡ x`, matching Indri — e.g. `#1("the house")` reduces to
+the one surviving token after the stopword is dropped).
 
 **Implemented & test-covered** (the allow-list):
 
@@ -309,8 +309,14 @@ stopword is dropped).
   co-occurrence count. Its operands must produce positions (terms, `#N`/`#uwN`, `#syn`); a belief operator
   like `#or`/`#combine` is **not** a valid `#band` operand (use `#syn` for a disjunctive facet).
 - Filter: `#scoreif`, `#scoreifnot`
-- Terms & fields: `dog`, `dog.title` (field restriction; `:` is rewritten to `.`). Default field is
-  **`fulltext`**. A bare query (`dog training`) is wrapped in `#combine`.
+- Terms & text (**quote-only grammar, TASK‑0016**): **all query text is quoted.** A `"..."` literal is an
+  analyzed-text splice — the index analyzer is the single tokenization authority, so query tokens equal
+  index tokens by construction (escapes `\"` and `\\` only). `#token("..." "..." …)` is the **verbatim**
+  splice: whitespace-separated quoted tokens looked up as-is (no analysis/stemming/stopping/lowercasing;
+  the Indri idiom `#1("u" "s" "a")` becomes `#1(#token("u" "s" "a"))`). **Bare unquoted terms are a syntax
+  error** (`#combine(dog cat)` → write `#combine("dog cat")`), **field restriction (`term.field`, `:`) is
+  removed** (a dotted token `"dog.title"` is just analyzed text), and `~` is no longer an operator prefix.
+  Default field is **`fulltext`**; a query with no leading operator (`"dog training"`) is wrapped in `#combine`.
 
 **Not implemented — rejected with a clear error** (post‑TASK‑0014): `#wsyn`, `#prior`, passage/field
 retrieval (`#combine[field]`, `#combine[passageN:M]`), numeric/date operators (`#less`, `#greater`,
@@ -324,6 +330,19 @@ retrieval (`#combine[field]`, `#combine[passageN:M]`), numeric/date operators (`
 - **Query analysis must match index analysis.** Lucindri's query-time `stemmer` / `removeStopwords` /
   `ignoreCase` (query-XML elements, defaults `kstem`/`true`/`true`) must equal how the index was built,
   or terms won't match. This is configurable now (it used to be hardcoded).
+- **All query text is quoted (TASK‑0016 cheat sheet).** Write `#combine("dog cat")`, never
+  `#combine(dog cat)`. A `"..."` literal is analyzed text (a **bag of tokens, NOT a phrase**); a
+  **phrase** is `#1("...")`; `#token("...")` is a **verbatim** vocabulary lookup (no stemming/stopping).
+  Bare unquoted text, field syntax (`dog.title`), and `~` are all syntax errors now. Escapes inside a
+  literal are `\"` and `\\` only.
+- **Weights copy per spliced token.** In a weighted operator (`#weight`/`#wand`/`#wsum`), a multi-token
+  literal gives **each** of its tokens the operand's weight, and because `#weight` normalizes by the sum
+  of child weights, that shifts the mass split. `#weight( 2.0 "hi-tech lamp" 1.0 "cat" )` builds
+  `(2.0 hi) (2.0 tech) (2.0 lamp) (1.0 cat)` → score `= (2·s_hi + 2·s_tech + 2·s_lamp + 1·s_cat)/7`, so the
+  literal's tokens jointly get 6/7 of the mass. To weight a *concept* once, wrap it:
+  `#weight( 2.0 #combine("this is my first concept") 1.0 "cat" )` (mass split 2/3 vs 1/3). This is the
+  long-standing per-token behavior of a multi-token chunk, now via literals — string literals do not
+  change how `#weight` works.
 - **`#combine` is a soft-AND, not a filter.** To *require* a term, use `#scoreif`. Documents missing a
   term still score (background).
 - **Keep filters at the top level; don't nest `#scoreif`/`#scoreifnot` inside `#weight`/`#combine`.** At
@@ -335,10 +354,10 @@ retrieval (`#combine[field]`, `#combine[passageN:M]`), numeric/date operators (`
 - **Use `#syn`, not `#or`, inside proximity operators.** `#or` is a belief op and is not a valid
   proximity operand.
 - **Don't nest a proximity operator inside another proximity operator** (`#band`/`#uwN`/`#odN`/`#syn` as an
-  operand of another one — e.g. `#band(a #band(b c))`, `#od2(#band(x y) z)`). Lucindri and Indri count these
-  differently (§6E): the inner op's overlapping candidate windows are exposed to the parent in Indri but
-  pre-deduplicated in Lucindri. Prefer **flat** proximity ops (`#band(a b c)`, `#uwN(a b c)`), which both
-  engines count identically — but note a flattened query is *not* semantically the same as the nested one.
+  operand of another one — e.g. `#band("a" #band("b c"))`, `#od2(#band("x y") "z")`). Lucindri and Indri
+  count these differently (§6E): the inner op's overlapping candidate windows are exposed to the parent in
+  Indri but pre-deduplicated in Lucindri. Prefer **flat** proximity ops (`#band("a b c")`, `#uwN("a b c")`),
+  which both engines count identically — but note a flattened query is *not* semantically the same as the nested one.
   Nesting a proximity op inside a **belief** op (`#combine`/`#weight`/…) is fine and matches Indri.
 - **Windows count non-overlapping**, and ordered `#N` = unordered `#uwN` in counting rule. Don't expect
   `#2("10 10 20 20")` to count 2.
@@ -361,12 +380,14 @@ This guide documents system behavior that open decisions may change:
 - **TASK‑0012** (exact document length vs norm quantization) — **done** (opt-in `exactDocumentLength`
   index flag); §6B reflects the shipped behavior.
 - **TASK‑0014** (`#odN` alias + reject unknown operators) — **done**; §7 reflects the shipped behavior.
-- **TASK‑0016** (natural language vs notation: `.`/`:`/quotes) — **design decided 2026-07-06, not yet
-  implemented**: query text will flow through the (declared) query analyzer unmodified via `"..."`
-  string-literal splices, `#token(...)` becomes the verbatim-lookup escape hatch, and field syntax
-  (`term.field`, `:`) is removed. The query-time analysis knobs (`stemmer`/`removeStopwords`/
-  `ignoreCase`) are **retained as-is** (a self-describing-index alternative was considered and
-  rejected — no indexer change). When implemented, §7 (operator map) and §8 (guidance) here must be
-  updated — the task file carries the full grammar, compatibility ledger, and test plan.
+- **TASK‑0016** (natural language vs notation: the quote-only grammar) — **done 2026-07-06**: all query
+  text is quoted (`"..."` analyzed-text splices, the index analyzer being the single tokenization
+  authority), `#token("...")` is the verbatim-lookup escape hatch, and bare terms, field syntax
+  (`term.field`, `:`), and the `~` operator prefix are removed. The query-time analysis knobs
+  (`stemmer`/`removeStopwords`/`ignoreCase`) are **retained as-is** (a self-describing-index alternative
+  was considered and rejected — no indexer change). §7 (operator map) and §8 (guidance) reflect the
+  shipped grammar. This is the point where Lucindri deliberately extends **beyond** the C++ Indri query
+  language (git tag `indri-parity`); §6 elements are still held to the "match Indri" yardstick, TASK‑0016
+  elements are Lucindri extensions judged by their own documented semantics.
 
 When the code moves, update this guide **and** the pinning tests; do not let the two drift.
