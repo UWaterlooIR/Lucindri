@@ -30,6 +30,7 @@
 	<modules>
 		<module>LucindriAnalyzer</module>
 		<module>LucindriSearcher</module>
+		<module>LucindriServer</module>
 		<module>LucindriIndexer</module>
 	</modules>
 

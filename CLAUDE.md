@@ -13,7 +13,9 @@ dependency order (build one with `mvn -pl LucindriSearcher -am install`). The mo
 
 1. `LucindriAnalyzer`  — artifact `org.lemurproject.lucindri:analyzer:2.0` (local-only)
 2. `LucindriSearcher`  — query-time; produces `LucindriSearcher-2.0-jar-with-dependencies.jar`
-3. `LucindriIndexer`   — index-time; produces `LucindriIndexer-2.0-jar-with-dependencies.jar`
+3. `LucindriServer`    — long-running HTTP/JSON service over the searcher core (TASK-0019);
+   produces `LucindriServer-2.0-jar-with-dependencies.jar` (main class `…server.LucindriServer`)
+4. `LucindriIndexer`   — index-time; produces `LucindriIndexer-2.0-jar-with-dependencies.jar`
 
 The two `-jar-with-dependencies.jar` fat jars are self-contained (Lucene is bundled
 inside them — no separate Lucene install is ever needed).

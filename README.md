@@ -174,6 +174,35 @@ The index may be a comma-separated list (searched as one, like the `<index>` par
 `0` when the docno is found, `1` when it is not. Running the jar with a queries file as the first argument
 (as above) is unchanged — the `getdoc` subcommand is purely additive.
 
+## Lucindri Server (HTTP/JSON)
+
+For interactive use (e.g. an agent issuing one query at a time), the **`LucindriServer`** module runs a
+long-lived HTTP/JSON service that opens the index once and stays warm, so each query is answered at
+sub-second latency instead of paying JVM startup + index-open per query. It uses the JDK's built-in HTTP
+server (no web framework) and shares the exact same retrieval path as the batch searcher. Main class:
+`org.lemurproject.lucindri.server.LucindriServer`.
+
+```
+java -jar LucindriServer-2.0-jar-with-dependencies.jar --index /path/to/index --port 8080
+     [--host 127.0.0.1] [--rule dirichlet:2000] [--stemmer kstem]
+     [--removeStopwords true] [--ignoreCase true] [--maxPassages 2] [--threads N]
+```
+
+`--index` and `--port` are required; the rest default to the batch searcher's defaults. The analysis
+options (`stemmer`/`removeStopwords`/`ignoreCase`) must match how the index was built. Binds loopback by
+default (dev target; no auth). Requests and responses are logged to stdout.
+
+Endpoints (all bodies are JSON):
+- **`POST /search`** — `{ "query": string, "count": int, "summaries": bool? }` →
+  `{ "results": [ { "docno": string, "score": number, "summary": string? } ] }`. `summary` is present only
+  when `summaries=true` (a query-biased extractive snippet). A malformed query → **400** `{ "error": ... }`.
+- **`POST /document`** — `{ "docno": string }` → `{ "docno": string, "fulltext": string }`, or **404** if
+  the docno is unknown.
+- **`GET /healthz`** → `{ "ok": true }` once the index is open.
+
+A stdlib black-box acceptance harness is provided: `python3 scripts/conformance.py --port <p> --query
+'#combine("<a matching term>")'` (see `scripts/server-smoke.sh` for an end-to-end build-index-and-check run).
+
 ## Lucindri Query Language
 
 ### Query text: all text is quoted (TASK-0016)
