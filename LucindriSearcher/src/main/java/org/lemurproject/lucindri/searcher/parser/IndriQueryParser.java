@@ -82,8 +82,6 @@ public class IndriQueryParser {
 
 	private final Analyzer analyzer;
 	private String defaultField;
-	/** Current recursion depth of {@link #parseQueryString}; reset per {@link #parseQuery}. (TASK-0015) */
-	private int parseDepth;
 
 	public IndriQueryParser() throws IOException {
 		this(DEFAULT_FIELD_NAME);
@@ -362,7 +360,8 @@ public class IndriQueryParser {
 	 * @return PopData<String,String> The subquery string and the modified argString
 	 *         (e.g., "#and(a b)" and "c d".
 	 */
-	private String popSubquery(String argString, QueryParserOperatorQuery queryTree, Float weight, Occur occur) {
+	private String popSubquery(String argString, QueryParserOperatorQuery queryTree, Float weight, Occur occur,
+			int depth) {
 
 		int i = indexOfBalancingParen(argString);
 
@@ -373,7 +372,7 @@ public class IndriQueryParser {
 		}
 
 		String subquery = argString.substring(0, i + 1);
-		queryTree.addSubquery(parseQueryString(subquery, occur), weight);
+		queryTree.addSubquery(parseQueryString(subquery, occur, depth + 1), weight);
 
 		argString = argString.substring(i + 1);
 
@@ -449,22 +448,17 @@ public class IndriQueryParser {
 		return argString.substring(close + 1);
 	}
 
-	private QueryParserQuery parseQueryString(String queryString, Occur occur) {
-		// Guard recursion depth so a deeply nested query errors cleanly instead of StackOverflow. The
-		// finally decrements even on a thrown syntax error, so sibling subqueries do not accumulate depth.
-		// (TASK-0015)
-		if (++parseDepth > MAX_PARSE_DEPTH) {
-			parseDepth--;
+	private QueryParserQuery parseQueryString(String queryString, Occur occur, int depth) {
+		// Guard recursion depth so a deeply nested query errors cleanly instead of StackOverflow. depth is a
+		// method-local threaded through the recursion (NOT a shared instance field), so one parser instance
+		// is safe for concurrent parseQuery/queryTerms calls. (TASK-0015 guard; TASK-0019 thread-safety)
+		if (depth > MAX_PARSE_DEPTH) {
 			syntaxError("query nesting too deep (limit " + MAX_PARSE_DEPTH + ")");
 		}
-		try {
-			return parseQueryStringInner(queryString, occur);
-		} finally {
-			parseDepth--;
-		}
+		return parseQueryStringInner(queryString, occur, depth);
 	}
 
-	private QueryParserQuery parseQueryStringInner(String queryString, Occur occur) {
+	private QueryParserQuery parseQueryStringInner(String queryString, Occur occur, int depth) {
 		// Create the query tree
 		// This simple parser is sensitive to parenthesis placement, so check for basic errors first.
 		queryString = queryString.trim();
@@ -543,7 +537,7 @@ public class IndriQueryParser {
 				if (isTokenSplice(queryString)) {
 					queryString = popTokenSplice(queryString, queryTree, weight, occur).trim();
 				} else {
-					queryString = popSubquery(queryString, queryTree, weight, occur).trim();
+					queryString = popSubquery(queryString, queryTree, weight, occur, depth).trim();
 				}
 				occur = Occur.SHOULD;
 			} else { // must be a "..." literal — anything unquoted is rejected inside popLiteral
@@ -562,9 +556,53 @@ public class IndriQueryParser {
 		if (queryString == null) {
 			return null;
 		}
-		parseDepth = 0;
-		QueryParserQuery qry = parseQueryString(queryString, Occur.SHOULD);
+		QueryParserQuery qry = parseQueryString(queryString, Occur.SHOULD, 1);
 		return getLuceneQuery(qry);
+	}
+
+	/**
+	 * Returns the analyzed content terms of {@code queryString} that a query-biased summary should
+	 * highlight: the leaf terms reached under POSITIVE polarity. Terms the query is trying to AVOID are
+	 * excluded — polarity flips when descending into a {@code #not(...)} subtree or the CONDITION (first
+	 * child) of {@code #scoreifnot(C S)}; a double negation cancels. Because it reuses the same parse the
+	 * Lucene query is built from, the terms are exactly the analyzed (stemmed/stopped/lowercased) tokens the
+	 * index holds. Duplicates are removed, order preserved. (TASK-0019)
+	 */
+	public List<String> queryTerms(String queryString) {
+		Set<String> terms = new java.util.LinkedHashSet<>();
+		if (queryString != null) {
+			collectPositiveTerms(parseQueryString(queryString, Occur.SHOULD, 1), true, terms);
+		}
+		return new ArrayList<>(terms);
+	}
+
+	private void collectPositiveTerms(QueryParserQuery node, boolean positive, Set<String> out) {
+		if (node instanceof QueryParserTermQuery) {
+			if (positive) {
+				out.add(((QueryParserTermQuery) node).getTerm());
+			}
+			return;
+		}
+		if (!(node instanceof QueryParserOperatorQuery)) {
+			return;
+		}
+		QueryParserOperatorQuery op = (QueryParserOperatorQuery) node;
+		List<QueryParserQuery> children = op.getSubqueries();
+		if (children == null) {
+			return;
+		}
+		boolean isNot = NOT.equals(op.getOperator());
+		boolean isScoreIfNot = SCOREIFNOT.equals(op.getOperator());
+		for (int i = 0; i < children.size(); i++) {
+			// #not negates all children; #scoreifnot negates only its condition (child 0 — child 1..n are
+			// the scored subquery S, which keeps polarity). Everything else preserves polarity, including
+			// #scoreif's condition (wanted present) and #syn's alternates / proximity constituents.
+			boolean childPositive = positive;
+			if (isNot || (isScoreIfNot && i == 0)) {
+				childPositive = !positive;
+			}
+			collectPositiveTerms(children.get(i), childPositive, out);
+		}
 	}
 
 	public Query parseJsonQueryString(String jsonQueryString) {
