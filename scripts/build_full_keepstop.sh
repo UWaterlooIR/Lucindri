@@ -19,7 +19,7 @@ if [ "$EXACTLEN" = true ]; then _tag=keepstop_exactlen; else _tag=keepstop; fi
 CORP=${CORP:-/ssd-8TB/corpora/climbmix-400b-corpus-jsonl}
 STAGE=${STAGE:-/ssd-8TB/climbmix-staging-$_tag}
 IDXPARENT=${IDXPARENT:-/ssd-8TB/indexes/climbmix_full_$_tag}
-JAR=${JAR:-/ssd-8TB/git-repos/Lucindri/LucindriIndexer/target/LucindriIndexer-1.45-jar-with-dependencies.jar}
+JAR=${JAR:-$(ls /ssd-8TB/git-repos/Lucindri/LucindriIndexer/target/LucindriIndexer-*-jar-with-dependencies.jar 2>/dev/null | head -1)}
 PARTS=${PARTS:-8}
 XMX=${XMX:-8G}
 FORCE=${FORCE:-0}
