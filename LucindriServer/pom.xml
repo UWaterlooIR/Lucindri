@@ -8,62 +8,16 @@
 		<version>2.0</version>
 		<relativePath>../pom.xml</relativePath>
 	</parent>
-	<artifactId>LucindriSearcher</artifactId>
+	<artifactId>LucindriServer</artifactId>
 	<dependencies>
 		<dependency>
-			<groupId>org.apache.lucene</groupId>
-			<artifactId>lucene-core</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.lucene</groupId>
-			<artifactId>lucene-analyzers-common</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.lucene</groupId>
-			<artifactId>lucene-backward-codecs</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.lucene</groupId>
-			<artifactId>lucene-benchmark</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.lucene</groupId>
-			<artifactId>lucene-codecs</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.lucene</groupId>
-			<artifactId>lucene-queryparser</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.lucene</groupId>
-			<artifactId>lucene-highlighter</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.commons</groupId>
-			<artifactId>commons-lang3</artifactId>
-		</dependency>
-		<dependency>
 			<groupId>org.lemurproject.lucindri</groupId>
-			<artifactId>analyzer</artifactId>
+			<artifactId>LucindriSearcher</artifactId>
 			<version>${project.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>com.google.code.gson</groupId>
 			<artifactId>gson</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.solr</groupId>
-			<artifactId>solr-solrj</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.solr</groupId>
-			<artifactId>solr-core</artifactId>
-			<exclusions>
-				<exclusion>
-					<artifactId>jdk.tools</artifactId>
-					<groupId>jdk.tools</groupId>
-				</exclusion>
-			</exclusions>
 		</dependency>
 		<dependency>
 			<groupId>org.junit.jupiter</groupId>
@@ -78,8 +32,8 @@
 				<artifactId>maven-surefire-plugin</artifactId>
 				<configuration>
 					<!-- Indri scores are negative log-probabilities, which trip Lucene's internal
-					     `assert score >= 0`. Production runs via `java -jar` without assertions, so
-					     disable them here to match runtime behavior. -->
+					     `assert score >= 0`. Production runs via `java -jar` without assertions, so disable
+					     them here to match runtime behavior (mirrors LucindriSearcher). -->
 					<enableAssertions>false</enableAssertions>
 				</configuration>
 			</plugin>
@@ -88,7 +42,7 @@
 				<configuration>
 					<archive>
 						<manifest>
-							<mainClass>org.lemurproject.lucindri.searcher.LucindriCli</mainClass>
+							<mainClass>org.lemurproject.lucindri.server.LucindriServer</mainClass>
 						</manifest>
 					</archive>
 					<descriptorRefs>

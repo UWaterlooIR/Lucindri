@@ -25,32 +25,17 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.document.Document;
-import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.index.MultiReader;
-import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.Query;
-import org.apache.lucene.search.ScoreDoc;
-import org.apache.lucene.search.TopDocs;
-import org.apache.lucene.search.similarities.Similarity;
-import org.apache.lucene.store.Directory;
-import org.apache.lucene.store.FSDirectory;
 import org.lemurproject.lucindri.analyzer.EnglishAnalyzerConfigurable;
 import org.lemurproject.lucindri.searcher.domain.JsonIndriQuery;
 import org.lemurproject.lucindri.searcher.domain.JsonIndriQueryWrapper;
-import org.lemurproject.lucindri.searcher.parser.IndriQueryParser;
 import org.lemurproject.lucindri.searcher.parser.QueryParseException;
-import org.lemurproject.lucindri.searcher.similarities.IndriDirichletSimilarity;
-import org.lemurproject.lucindri.searcher.similarities.IndriJelinekMercerSimilarity;
+import org.lemurproject.lucindri.searcher.service.LucindriSearchService;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 
 public class IndriSearch {
-
-	private final static String EXTERNALID_FIELD = "externalId";
 
 	public static void main(String[] args)
 			throws Exception {
@@ -68,85 +53,29 @@ public class IndriSearch {
 		}
 
 		if (queryWrapper != null) {
-			String indexDir = queryWrapper.getIndex();
-
-			IndexReader reader = null;
-			IndexSearcher searcher = null;
-			if (indexDir.contains(",")) {
-				String[] dirs = indexDir.split(",");
-				IndexReader[] subReaders = new IndexReader[dirs.length];
-				int readerIndex = 0;
-				for (String dirString : dirs) {
-					Directory dir = FSDirectory.open(Paths.get(dirString.trim()));
-					IndexReader subReader = DirectoryReader.open(dir);
-					subReaders[readerIndex] = subReader;
-					readerIndex++;
-				}
-				reader = new MultiReader(subReaders, true);
-			} else {
-				Directory dir = FSDirectory.open(Paths.get(indexDir));
-				reader = DirectoryReader.open(dir);
-			}
-			searcher = new IndriIndexSearcher(reader);
-			if (reader == null || searcher == null) {
-				throw new Exception("Index Directory was not properly set");
-			}
-
-			Similarity similarity = new IndriDirichletSimilarity();
-			if (queryWrapper.getRule() != null) {
-				String similarityString = queryWrapper.getRule().toLowerCase();
-				String[] similarityParams = similarityString.split(":");
-				String similarityName = similarityParams[0];
-				String parameter = null;
-				if (similarityParams.length > 1) {
-					parameter = similarityParams[1];
-				}
-				if (similarityName.equals("dirichlet") || similarityName.equals("dir") || similarityName.equals("d")) {
-					if (parameter != null) {
-						float mu = Float.valueOf(parameter).floatValue();
-						similarity = new IndriDirichletSimilarity(mu);
-					}
-				} else if (similarityName.equals("jelinek-mercer") || similarityName.equals("jm")
-						|| similarityName.equals("linear")) {
-					similarity = new IndriJelinekMercerSimilarity();
-					if (parameter != null) {
-						float lambda = Float.valueOf(parameter).floatValue();
-						similarity = new IndriJelinekMercerSimilarity(lambda);
-					}
-				}
-			}
-			searcher.setSimilarity(similarity);
-
-			// Query analysis must match the index's analysis (stemmer + tokenizer especially);
-			// query-side stopword removal may legitimately differ from the documents'.
-			IndriQueryParser queryParser = new IndriQueryParser("fulltext", queryWrapper.getStemmer(),
-					queryWrapper.isRemoveStopwords(), queryWrapper.isIgnoreCase());
-			for (JsonIndriQuery query : queryWrapper.getQueries()) {
-				try {
-					Query test = queryParser.parseQuery(query.getText());
-
-					if (test != null) {
-						TopDocs hitDocs = searcher.search(test, queryWrapper.getCount());
-						ScoreDoc[] scoreDocs = hitDocs.scoreDocs;
-
+			// Thin driver over the shared search core (TASK-0019): the reader/searcher/similarity/parser
+			// pipeline that used to be inlined here now lives in LucindriSearchService, so the batch CLI and
+			// the HTTP server run identical retrieval. TREC output format is unchanged.
+			try (LucindriSearchService service = new LucindriSearchService(queryWrapper.getIndex(),
+					queryWrapper.getRule(), queryWrapper.getStemmer(), queryWrapper.isRemoveStopwords(),
+					queryWrapper.isIgnoreCase(), 2)) {
+				for (JsonIndriQuery query : queryWrapper.getQueries()) {
+					try {
+						List<LucindriSearchService.SearchResult> results = service.search(query.getText(),
+								queryWrapper.getCount(), false);
 						int rank = 0;
-						for (ScoreDoc scoreDoc : scoreDocs) {
+						for (LucindriSearchService.SearchResult result : results) {
 							rank++;
-							int docid = scoreDoc.doc;
-
-							Document doc = searcher.doc(docid);
-							String fileName = doc.get(EXTERNALID_FIELD);
-
-							System.out.println(String.join(" ", query.getNumber(), "Q0", fileName, String.valueOf(rank),
-									String.valueOf(scoreDoc.score), "lucene"));
+							System.out.println(String.join(" ", query.getNumber(), "Q0", result.docno,
+									String.valueOf(rank), String.valueOf(result.score), "lucene"));
 						}
+					} catch (QueryParseException e) {
+						// A malformed query must not abort the whole batch: report it and move on. (TASK-0015)
+						System.err.println("Skipping malformed query " + query.getNumber() + ": " + e.getMessage());
+					} catch (RuntimeException e) {
+						// Defensive: an unexpected internal error on one query must not kill the run either.
+						System.err.println("Internal error on query " + query.getNumber() + ": " + e);
 					}
-				} catch (QueryParseException e) {
-					// A malformed query must not abort the whole batch: report it and move on. (TASK-0015)
-					System.err.println("Skipping malformed query " + query.getNumber() + ": " + e.getMessage());
-				} catch (RuntimeException e) {
-					// Defensive: an unexpected internal error on one query must not kill the run either.
-					System.err.println("Internal error on query " + query.getNumber() + ": " + e);
 				}
 			}
 		} else {

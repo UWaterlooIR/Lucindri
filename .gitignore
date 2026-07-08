@@ -42,3 +42,8 @@ docs/inference-networks.md
 docs/inquery.md
 docs/metzler-combining.md
 docs/metzler-thesis.md
+
+##########################
+## Maven build output
+##########################
+target/

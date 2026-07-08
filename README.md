@@ -23,10 +23,16 @@ Lucindri requires the 64-bit version of Java 11 and Apache [Maven](https://maven
 
 Development and testing (including the post-1.5 updates) were done on **64-bit OpenJDK 11** — specifically OpenJDK 11.0.31 on Ubuntu under WSL2 — with **Maven 3.6.3**. Any 64-bit Java 11 JDK should work.
 
-Clone this repository and build the three modules with *mvn clean install* in this order:
-+ LucindriAnalyzer
-+ LucindriSearcher
-+ LucindriIndexer
+Clone this repository and, from the repo root, run:
+
+```
+mvn clean install
+```
+
+The root `pom.xml` is a Maven **reactor**: it builds every module (`LucindriAnalyzer`, `LucindriSearcher`,
+`LucindriIndexer`) in the correct dependency order automatically — no need to build them one at a time. To
+build a single module and just the modules it depends on, use e.g. `mvn -pl LucindriSearcher -am install`.
+(All modules share the version **2.0**.)
 
 > **Note on trec-car-tools.** The *only* thing that depends on [trec-car-tools](https://github.com/TREMA-UNH/trec-car-tools-java) (from the Trema Lab at UNH) is the `car` document-format parser used at index time. That dependency is declared in `LucindriIndexer/pom.xml` and now resolves automatically from [jitpack.io](https://jitpack.io) during the build — you no longer need to clone or `mvn install` it by hand. Nothing else in the engine — the searcher, the analyzer, or any other document format — uses it, so if you never index the `car` format you never touch it.
 
@@ -96,7 +102,7 @@ ignoreCase=true
 
 Running the LucindriIndexer can be done from inside an IDE, invoking the main class (org.lemurproject.lucindri.indexer.BuildIndex), or using the jar file in the *target* directory.  Use at least 2G of heap space (preferably 4G - 8G).
 ```
-java -jar -Xmx4G LucindriIndexer-1.45-jar-with-dependencies.jar index.properties
+java -jar -Xmx4G LucindriIndexer-2.0-jar-with-dependencies.jar index.properties
 ```
 
 ## Lucindri Searcher
@@ -153,7 +159,7 @@ Here is an example query file:
 
 Running the LucindriSearcher can be done from inside an IDE, invoking the main class (org.lemurproject.lucindri.searcher.IndriSearch), or using the jar file in the *target* directory.  Use at least 2G of heap space (preferably 4G - 8G).
 ```
-java -jar -Xmx4G LucindriSearcher-1.5-jar-with-dependencies.jar queries.xml
+java -jar -Xmx4G LucindriSearcher-2.0-jar-with-dependencies.jar queries.xml
 ```
 
 ### Fetching a document by docno (`getdoc`)
@@ -162,11 +168,40 @@ The searcher jar also exposes a `getdoc` subcommand that prints a single documen
 stdout, given the index and the document's external id (docno). It is an exact keyword lookup — no query
 analysis — and is handy for inspecting a result or serving full documents:
 ```
-java -jar LucindriSearcher-1.5-jar-with-dependencies.jar getdoc /path/to/index shard_00000_0
+java -jar LucindriSearcher-2.0-jar-with-dependencies.jar getdoc /path/to/index shard_00000_0
 ```
 The index may be a comma-separated list (searched as one, like the `<index>` parameter). Exit status is
 `0` when the docno is found, `1` when it is not. Running the jar with a queries file as the first argument
 (as above) is unchanged — the `getdoc` subcommand is purely additive.
+
+## Lucindri Server (HTTP/JSON)
+
+For interactive use (e.g. an agent issuing one query at a time), the **`LucindriServer`** module runs a
+long-lived HTTP/JSON service that opens the index once and stays warm, so each query is answered at
+sub-second latency instead of paying JVM startup + index-open per query. It uses the JDK's built-in HTTP
+server (no web framework) and shares the exact same retrieval path as the batch searcher. Main class:
+`org.lemurproject.lucindri.server.LucindriServer`.
+
+```
+java -jar LucindriServer-2.0-jar-with-dependencies.jar --index /path/to/index --port 8080
+     [--host 127.0.0.1] [--rule dirichlet:2000] [--stemmer kstem]
+     [--removeStopwords true] [--ignoreCase true] [--maxPassages 2] [--threads N]
+```
+
+`--index` and `--port` are required; the rest default to the batch searcher's defaults. The analysis
+options (`stemmer`/`removeStopwords`/`ignoreCase`) must match how the index was built. Binds loopback by
+default (dev target; no auth). Requests and responses are logged to stdout.
+
+Endpoints (all bodies are JSON):
+- **`POST /search`** — `{ "query": string, "count": int, "summaries": bool? }` →
+  `{ "results": [ { "docno": string, "score": number, "summary": string? } ] }`. `summary` is present only
+  when `summaries=true` (a query-biased extractive snippet). A malformed query → **400** `{ "error": ... }`.
+- **`POST /document`** — `{ "docno": string }` → `{ "docno": string, "fulltext": string }`, or **404** if
+  the docno is unknown.
+- **`GET /healthz`** → `{ "ok": true }` once the index is open.
+
+A stdlib black-box acceptance harness is provided: `python3 scripts/conformance.py --port <p> --query
+'#combine("<a matching term>")'` (see `scripts/server-smoke.sh` for an end-to-end build-index-and-check run).
 
 ## Lucindri Query Language
 

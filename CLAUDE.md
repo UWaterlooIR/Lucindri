@@ -6,12 +6,16 @@ then read any task you are asked to work on under `tasks/`.
 ## What this repo is
 
 Lucindri is an open-source implementation of Indri search logic and the Indri
-structured query language, built on top of Apache **Lucene 8.10.0**. It has three
-Maven modules that must be built in this order (each with `mvn clean install`):
+structured query language, built on top of Apache **Lucene 8.10.0**. It has a root Maven
+**reactor** POM (TASK-0021) — `mvn clean install` at the repo root builds all modules in
+dependency order (build one with `mvn -pl LucindriSearcher -am install`). The modules
+(all version **2.0**):
 
-1. `LucindriAnalyzer`  — artifact `org.lemurproject.lucindri:analyzer:1.5` (local-only)
-2. `LucindriSearcher`  — query-time; produces `LucindriSearcher-1.5-jar-with-dependencies.jar`
-3. `LucindriIndexer`   — index-time; produces `LucindriIndexer-1.45-jar-with-dependencies.jar`
+1. `LucindriAnalyzer`  — artifact `org.lemurproject.lucindri:analyzer:2.0` (local-only)
+2. `LucindriSearcher`  — query-time; produces `LucindriSearcher-2.0-jar-with-dependencies.jar`
+3. `LucindriServer`    — long-running HTTP/JSON service over the searcher core (TASK-0019);
+   produces `LucindriServer-2.0-jar-with-dependencies.jar` (main class `…server.LucindriServer`)
+4. `LucindriIndexer`   — index-time; produces `LucindriIndexer-2.0-jar-with-dependencies.jar`
 
 The two `-jar-with-dependencies.jar` fat jars are self-contained (Lucene is bundled
 inside them — no separate Lucene install is ever needed).
@@ -119,8 +123,20 @@ main package. Run with `mvn test` (or `mvn install`) in the module.
   with real runtime behavior.
 - Examples: indexer parser tests (`ClimbmixJsonlDocumentParserTest`), analyzer tokenization tests
   (`EnglishAnalyzerConfigurableTest`), searcher fixture smoke tests (`TestIndexSmokeTest`).
-- A parent/reactor POM to centralize the above is a deferred option (modules currently build
-  independently with different versions); revisit only as a separate decision.
+- **Standing end-to-end effectiveness/stability check (TREC-8 topics 401–450):** run it after any change
+  to indexing, scoring, the parser, or the server. **`scripts/eval-401-450/`** is a self-contained kit with
+  a README — `build_index.sh` builds a fresh keep-stopwords + exact-length t45mCR index, `eval.sh` runs the
+  50 topics through the HTTP server *and* the batch searcher, confirms they rank identically, and
+  `trec_eval`s both. Pass = 50/50 identical rankings and **MAP 0.2499 / P@10 0.4340** (the recorded
+  baseline; full context in `docs/exactlen-stopwords-trec-eval.md`). Reproduced 2026-07-08 on the post-
+  TASK-0019/0020/0021 stack. For the deeper Indri comparison, see `scripts/trec-comparison/exactlen_eval.sh`.
+- A root parent/reactor POM aggregates the modules (TASK-0021): `mvn clean install` at the repo root
+  builds all in dependency order, and all modules share version **2.0**. The parent is the single source
+  of truth for shared third-party versions (`dependencyManagement`: Lucene/Solr 8.10.0, gson, commons-lang3,
+  junit) and build-plugin versions/config (`pluginManagement`: compiler+Java 11, surefire, assembly);
+  modules list those deps/plugins **without** versions. Module-specific bits stay per-module: the assembly
+  `mainClass` (searcher → `LucindriCli`, indexer → `BuildIndex`) and the searcher's surefire
+  `enableAssertions=false`.
 
 ## Task tracking system
 

@@ -33,7 +33,7 @@ public class LucindriGetDoc {
 	 * (multiple stored values joined with {@code "\n"}), or {@code null} if no document matches. A matched
 	 * document whose {@code fulltext} is absent/empty yields {@code ""} (found-but-empty), not {@code null}.
 	 */
-	static String fetch(IndexReader reader, String docno) throws IOException {
+	public static String fetch(IndexReader reader, String docno) throws IOException {
 		IndexSearcher searcher = new IndexSearcher(reader);
 		ScoreDoc[] hits = searcher.search(new TermQuery(new Term(EXTERNALID_FIELD, docno)), 1).scoreDocs;
 		if (hits.length == 0) {
