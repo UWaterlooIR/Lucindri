@@ -123,6 +123,13 @@ main package. Run with `mvn test` (or `mvn install`) in the module.
   with real runtime behavior.
 - Examples: indexer parser tests (`ClimbmixJsonlDocumentParserTest`), analyzer tokenization tests
   (`EnglishAnalyzerConfigurableTest`), searcher fixture smoke tests (`TestIndexSmokeTest`).
+- **Standing end-to-end effectiveness/stability check (TREC-8 topics 401–450):** run it after any change
+  to indexing, scoring, the parser, or the server. **`scripts/eval-401-450/`** is a self-contained kit with
+  a README — `build_index.sh` builds a fresh keep-stopwords + exact-length t45mCR index, `eval.sh` runs the
+  50 topics through the HTTP server *and* the batch searcher, confirms they rank identically, and
+  `trec_eval`s both. Pass = 50/50 identical rankings and **MAP 0.2499 / P@10 0.4340** (the recorded
+  baseline; full context in `docs/exactlen-stopwords-trec-eval.md`). Reproduced 2026-07-08 on the post-
+  TASK-0019/0020/0021 stack. For the deeper Indri comparison, see `scripts/trec-comparison/exactlen_eval.sh`.
 - A root parent/reactor POM aggregates the modules (TASK-0021): `mvn clean install` at the repo root
   builds all in dependency order, and all modules share version **2.0**. The parent is the single source
   of truth for shared third-party versions (`dependencyManagement`: Lucene/Solr 8.10.0, gson, commons-lang3,
