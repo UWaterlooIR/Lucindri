@@ -121,10 +121,13 @@ main package. Run with `mvn test` (or `mvn install`) in the module.
   with real runtime behavior.
 - Examples: indexer parser tests (`ClimbmixJsonlDocumentParserTest`), analyzer tokenization tests
   (`EnglishAnalyzerConfigurableTest`), searcher fixture smoke tests (`TestIndexSmokeTest`).
-- A root parent/reactor POM now aggregates the modules (TASK-0021): `mvn clean install` at the repo
-  root builds all in dependency order, and all modules share version **2.0**. (Centralizing the pinned
-  plugin/test versions in the parent's `pluginManagement`/`dependencyManagement` is a still-open optional
-  cleanup — each module currently keeps its own copies.)
+- A root parent/reactor POM aggregates the modules (TASK-0021): `mvn clean install` at the repo root
+  builds all in dependency order, and all modules share version **2.0**. The parent is the single source
+  of truth for shared third-party versions (`dependencyManagement`: Lucene/Solr 8.10.0, gson, commons-lang3,
+  junit) and build-plugin versions/config (`pluginManagement`: compiler+Java 11, surefire, assembly);
+  modules list those deps/plugins **without** versions. Module-specific bits stay per-module: the assembly
+  `mainClass` (searcher → `LucindriCli`, indexer → `BuildIndex`) and the searcher's surefire
+  `enableAssertions=false`.
 
 ## Task tracking system
 
