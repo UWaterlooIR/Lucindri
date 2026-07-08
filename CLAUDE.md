@@ -6,12 +6,14 @@ then read any task you are asked to work on under `tasks/`.
 ## What this repo is
 
 Lucindri is an open-source implementation of Indri search logic and the Indri
-structured query language, built on top of Apache **Lucene 8.10.0**. It has three
-Maven modules that must be built in this order (each with `mvn clean install`):
+structured query language, built on top of Apache **Lucene 8.10.0**. It has a root Maven
+**reactor** POM (TASK-0021) — `mvn clean install` at the repo root builds all modules in
+dependency order (build one with `mvn -pl LucindriSearcher -am install`). The modules
+(all version **2.0**):
 
-1. `LucindriAnalyzer`  — artifact `org.lemurproject.lucindri:analyzer:1.5` (local-only)
-2. `LucindriSearcher`  — query-time; produces `LucindriSearcher-1.5-jar-with-dependencies.jar`
-3. `LucindriIndexer`   — index-time; produces `LucindriIndexer-1.45-jar-with-dependencies.jar`
+1. `LucindriAnalyzer`  — artifact `org.lemurproject.lucindri:analyzer:2.0` (local-only)
+2. `LucindriSearcher`  — query-time; produces `LucindriSearcher-2.0-jar-with-dependencies.jar`
+3. `LucindriIndexer`   — index-time; produces `LucindriIndexer-2.0-jar-with-dependencies.jar`
 
 The two `-jar-with-dependencies.jar` fat jars are self-contained (Lucene is bundled
 inside them — no separate Lucene install is ever needed).
@@ -119,8 +121,10 @@ main package. Run with `mvn test` (or `mvn install`) in the module.
   with real runtime behavior.
 - Examples: indexer parser tests (`ClimbmixJsonlDocumentParserTest`), analyzer tokenization tests
   (`EnglishAnalyzerConfigurableTest`), searcher fixture smoke tests (`TestIndexSmokeTest`).
-- A parent/reactor POM to centralize the above is a deferred option (modules currently build
-  independently with different versions); revisit only as a separate decision.
+- A root parent/reactor POM now aggregates the modules (TASK-0021): `mvn clean install` at the repo
+  root builds all in dependency order, and all modules share version **2.0**. (Centralizing the pinned
+  plugin/test versions in the parent's `pluginManagement`/`dependencyManagement` is a still-open optional
+  cleanup — each module currently keeps its own copies.)
 
 ## Task tracking system
 

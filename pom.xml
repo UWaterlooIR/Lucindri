@@ -1,0 +1,21 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<groupId>org.lemurproject.lucindri</groupId>
+	<artifactId>lucindri-parent</artifactId>
+	<version>2.0</version>
+	<packaging>pom</packaging>
+
+	<name>Lucindri (parent reactor)</name>
+	<description>Aggregator POM: a single `mvn install` here builds every Lucindri module in dependency
+		order. Maven derives the order from the inter-module dependencies (analyzer is built before the
+		searcher/indexer that depend on it), so no build order needs to be documented by hand. Build one
+		module with `mvn -pl LucindriSearcher -am install`. (TASK-0021)</description>
+
+	<modules>
+		<module>LucindriAnalyzer</module>
+		<module>LucindriSearcher</module>
+		<module>LucindriIndexer</module>
+	</modules>
+</project>

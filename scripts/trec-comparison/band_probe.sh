@@ -12,14 +12,14 @@
 #   INDRI_BIN   default /ssd-8TB/installs/indri-5.21/bin
 #   IIDX        Indri index      default /ssd-8TB/trec-compare/fuzzfull/i
 #   LIDX        Lucindri index   default /ssd-8TB/trec-compare/el0012/lexact  (exactDocumentLength=true)
-#   JAR_SRCH    default target/LucindriSearcher-1.5-jar-with-dependencies.jar
+#   JAR_SRCH    default target/LucindriSearcher-2.0-jar-with-dependencies.jar
 #   MU          default 2000     COUNT default 8
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; REPO="$(cd "$HERE/../.." && pwd)"
 INDRI_BIN="${INDRI_BIN:-/ssd-8TB/installs/indri-5.21/bin}"
 IIDX="${IIDX:-/ssd-8TB/trec-compare/fuzzfull/i}"
 LIDX="${LIDX:-/ssd-8TB/trec-compare/el0012/lexact}"
-JAR_SRCH="${JAR_SRCH:-$REPO/LucindriSearcher/target/LucindriSearcher-1.5-jar-with-dependencies.jar}"
+JAR_SRCH="${JAR_SRCH:-$REPO/LucindriSearcher/target/LucindriSearcher-2.0-jar-with-dependencies.jar}"
 MU="${MU:-2000}"; COUNT="${COUNT:-8}"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 
