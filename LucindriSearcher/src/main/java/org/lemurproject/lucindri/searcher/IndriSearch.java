@@ -56,9 +56,11 @@ public class IndriSearch {
 			// Thin driver over the shared search core (TASK-0019): the reader/searcher/similarity/parser
 			// pipeline that used to be inlined here now lives in LucindriSearchService, so the batch CLI and
 			// the HTTP server run identical retrieval. TREC output format is unchanged.
+			// maxPassages is inert here (batch never requests summaries), but keep it consistent with the
+			// server default (4). Summary word-cap uses the service's default (TASK-0022).
 			try (LucindriSearchService service = new LucindriSearchService(queryWrapper.getIndex(),
 					queryWrapper.getRule(), queryWrapper.getStemmer(), queryWrapper.isRemoveStopwords(),
-					queryWrapper.isIgnoreCase(), 2)) {
+					queryWrapper.isIgnoreCase(), 4)) {
 				for (JsonIndriQuery query : queryWrapper.getQueries()) {
 					try {
 						List<LucindriSearchService.SearchResult> results = service.search(query.getText(),

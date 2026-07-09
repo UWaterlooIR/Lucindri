@@ -185,12 +185,19 @@ server (no web framework) and shares the exact same retrieval path as the batch 
 ```
 java -jar LucindriServer-2.0-jar-with-dependencies.jar --index /path/to/index --port 8080
      [--host 127.0.0.1] [--rule dirichlet:2000] [--stemmer kstem]
-     [--removeStopwords true] [--ignoreCase true] [--maxPassages 2] [--threads N]
+     [--removeStopwords true] [--ignoreCase true]
+     [--maxPassages 4] [--maxSummaryWords 75] [--threads N]
 ```
 
 `--index` and `--port` are required; the rest default to the batch searcher's defaults. The analysis
 options (`stemmer`/`removeStopwords`/`ignoreCase`) must match how the index was built. Binds loopback by
 default (dev target; no auth). Requests and responses are logged to stdout.
+
+Summaries (`summaries=true`) are query-biased extractive snippets: up to `--maxPassages` sentences chosen
+by query relevance, **joined by a single space**, and hard-capped at `--maxSummaryWords` whitespace-separated
+words — a longer summary is truncated at a word boundary and marked with a trailing `" ..."`. On messy
+docs with no sentence breaks (SEO/legal run-ons) the cap keeps the document's first `--maxSummaryWords`
+words.
 
 Endpoints (all bodies are JSON):
 - **`POST /search`** — `{ "query": string, "count": int, "summaries": bool? }` →
