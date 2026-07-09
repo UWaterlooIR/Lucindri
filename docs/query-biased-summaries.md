@@ -119,6 +119,12 @@ wraps matches in `<b>…</b>`).
 - **Terms, not operators.** The highlighter weights query *terms*; it does not honor proximity /
   belief structure. Phrase-aware highlighting would need span extraction, which the Indri queries
   don't expose either.
+- **Size cap (TASK-0022).** As shipped in the server, selected sentences are joined by a **single space**
+  (the `DefaultPassageFormatter` separator is `" "`, not `" ... "`) and the result is hard-capped at
+  `--maxSummaryWords` whitespace-separated words (default 75), truncating at a word boundary with a
+  trailing `" ..."`. A document whose body is one punctuation-free run-on (SEO/legal text) yields a single
+  huge passage; the cap keeps its **first** N words — bounded, though not necessarily the query-relevant N.
+  Better centering (overlapping / match-centered windows) would need a custom summarizer (deferred).
 
 ## Alternatives (when you want Lucindri's own LM scoring)
 

@@ -6,6 +6,8 @@ import java.text.BreakIterator;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.document.Document;
@@ -45,11 +47,15 @@ public class LucindriSearchService implements Closeable {
 	static final String EXTERNALID_FIELD = "externalId";
 	static final String FULLTEXT_FIELD = "fulltext";
 
+	/** Default hard cap on a summary's length in whitespace-delimited words (TASK-0022). */
+	public static final int DEFAULT_MAX_SUMMARY_WORDS = 75;
+
 	private final IndexReader reader;
 	private final IndriIndexSearcher searcher;
 	private final IndriQueryParser parser;
 	private final Analyzer analyzer;
 	private final int maxPassages;
+	private final int maxSummaryWords;
 
 	/** One ranked result. Public fields so the HTTP layer can serialize it directly. */
 	public static final class SearchResult {
@@ -75,12 +81,23 @@ public class LucindriSearchService implements Closeable {
 	 */
 	public LucindriSearchService(String index, String rule, String stemmer, boolean removeStopwords,
 			boolean ignoreCase, int maxPassages) throws IOException {
+		this(index, rule, stemmer, removeStopwords, ignoreCase, maxPassages, DEFAULT_MAX_SUMMARY_WORDS);
+	}
+
+	/**
+	 * As above, plus {@code maxSummaryWords}: the hard cap on a summary's length in whitespace-delimited
+	 * words. A longer summary is truncated at a word boundary and marked with a trailing {@code " ..."}.
+	 * (TASK-0022)
+	 */
+	public LucindriSearchService(String index, String rule, String stemmer, boolean removeStopwords,
+			boolean ignoreCase, int maxPassages, int maxSummaryWords) throws IOException {
 		this.reader = openReader(index);
 		this.searcher = new IndriIndexSearcher(reader);
 		this.searcher.setSimilarity(similarityFromRule(rule));
 		this.parser = new IndriQueryParser(FULLTEXT_FIELD, stemmer, removeStopwords, ignoreCase);
 		this.analyzer = buildAnalyzer(stemmer, removeStopwords, ignoreCase);
 		this.maxPassages = maxPassages;
+		this.maxSummaryWords = maxSummaryWords;
 	}
 
 	/**
@@ -122,12 +139,40 @@ public class LucindriSearchService implements Closeable {
 		}
 		UnifiedHighlighter uh = new UnifiedHighlighter(searcher, analyzer);
 		uh.setBreakIterator(() -> BreakIterator.getSentenceInstance(Locale.ENGLISH));
-		uh.setFormatter(new DefaultPassageFormatter("", "", " ... ", false)); // plain text, ellipsis joiner
+		uh.setFormatter(new DefaultPassageFormatter("", "", " ", false)); // plain text; sentences joined by a space
 		// A hit that matches no query term (Indri background smoothing returns those) falls back to the
 		// document's leading sentences instead of null, so every result gets a non-empty summary (§4).
 		uh.setMaxNoHighlightPassages(maxPassages);
 		uh.setMaxLength(1_000_000); // analyze deep enough to find matches in long docs
-		return uh.highlight(FULLTEXT_FIELD, hb.build(), topDocs, maxPassages);
+		String[] summaries = uh.highlight(FULLTEXT_FIELD, hb.build(), topDocs, maxPassages);
+		for (int i = 0; i < summaries.length; i++) {
+			summaries[i] = capWords(summaries[i], maxSummaryWords); // TASK-0022: bound summary length
+		}
+		return summaries;
+	}
+
+	/**
+	 * Truncates {@code s} to at most {@code maxWords} whitespace-delimited words, preserving the original
+	 * text up to that point and appending {@code " ..."} <em>only</em> when truncation occurs (the marker is
+	 * not counted toward {@code maxWords}). A summary already within the cap is returned unchanged;
+	 * {@code null} and {@code ""} are returned as-is. (TASK-0022)
+	 */
+	static String capWords(String s, int maxWords) {
+		if (s == null || maxWords < 1) {
+			return s;
+		}
+		Matcher m = Pattern.compile("\\S+").matcher(s);
+		int count = 0;
+		int endOfCap = -1;
+		while (m.find()) {
+			count++;
+			if (count == maxWords) {
+				endOfCap = m.end();
+			} else if (count > maxWords) {
+				return s.substring(0, endOfCap) + " ...";
+			}
+		}
+		return s; // <= maxWords words: unchanged, no marker
 	}
 
 	// --- construction helpers -------------------------------------------------------------------------

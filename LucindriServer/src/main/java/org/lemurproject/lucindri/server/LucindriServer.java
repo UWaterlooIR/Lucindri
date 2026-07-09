@@ -238,7 +238,8 @@ public class LucindriServer {
 		if (index == null || portStr == null) {
 			System.err.println("Usage: LucindriServer --index <dir[,dir,...]> --port <n>");
 			System.err.println("  [--host 127.0.0.1] [--rule dirichlet:2000] [--stemmer kstem]");
-			System.err.println("  [--removeStopwords true] [--ignoreCase true] [--maxPassages 2] [--threads 8]");
+			System.err.println("  [--removeStopwords true] [--ignoreCase true] [--maxPassages 4]"
+					+ " [--maxSummaryWords 75] [--threads 8]");
 			System.exit(2);
 			return;
 		}
@@ -247,13 +248,19 @@ public class LucindriServer {
 		String stemmer = flags.getOrDefault("stemmer", "kstem");
 		boolean removeStopwords = Boolean.parseBoolean(flags.getOrDefault("removeStopwords", "true"));
 		boolean ignoreCase = Boolean.parseBoolean(flags.getOrDefault("ignoreCase", "true"));
-		int maxPassages = Integer.parseInt(flags.getOrDefault("maxPassages", "2"));
+		int maxPassages = Integer.parseInt(flags.getOrDefault("maxPassages", "4"));
+		int maxSummaryWords = Integer.parseInt(flags.getOrDefault("maxSummaryWords", "75"));
+		if (maxPassages < 1 || maxSummaryWords < 1) {
+			System.err.println("--maxPassages and --maxSummaryWords must be >= 1");
+			System.exit(2);
+			return;
+		}
 		int port = Integer.parseInt(portStr);
 		int threads = Integer.parseInt(flags.getOrDefault("threads",
 				String.valueOf(Math.max(4, Runtime.getRuntime().availableProcessors()))));
 
 		LucindriSearchService service = new LucindriSearchService(index, rule, stemmer, removeStopwords, ignoreCase,
-				maxPassages);
+				maxPassages, maxSummaryWords);
 		LucindriServer server = new LucindriServer(service, host, port, threads);
 		Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 			server.stop();
@@ -265,7 +272,7 @@ public class LucindriServer {
 		server.start();
 		System.out.println("Lucindri server: index=" + index + " rule=" + (rule == null ? "dirichlet:2000" : rule)
 				+ " stemmer=" + stemmer + " removeStopwords=" + removeStopwords + " ignoreCase=" + ignoreCase
-				+ " maxPassages=" + maxPassages + " threads=" + threads);
+				+ " maxPassages=" + maxPassages + " maxSummaryWords=" + maxSummaryWords + " threads=" + threads);
 		System.out.println("listening on " + host + ":" + server.port());
 	}
 
